@@ -1,0 +1,25 @@
+{
+  "name": "budpay-backend",
+  "version": "1.0.0",
+  "description": "BudPay backend service - The Fair Pay Helper",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "paypal",
+    "ai",
+    "fair-pay",
+    "hackathon"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0"
+  }
+}
