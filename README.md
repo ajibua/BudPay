@@ -1,135 +1,89 @@
-# BudPay: The Fair Pay Helper
+﻿# BudPay: The Fair Pay Helper
 
-> **"PayPal moves the money. BudPay helps the boss decide what is fair."**  
-> *Project built for the PayPal AI Hackathon &bull; November 2026*
+> PayPal moves the money. BudPay helps the boss decide what is fair.
 
----
+BudPay helps a small business owner split a customer payment among crew members. The owner describes the work, reviews the suggested hours and skill weights, adjusts the boss share, and explicitly approves the payout. All PayPal calls are restricted to Sandbox.
 
-## 1. The Story
+## How it works
 
-Imagine a tailor named **Tunde**. A customer asks him to sew custom outfits for a wedding. Tunde cannot do it alone:
-- **Tola** (his apprentice) sews the clothes.
-- **Bisi** (a seamstress) does the delicate hand finishing.
-- **Kunle** (a rider) delivers the outfits across town.
+1. Create a PayPal Sandbox order and complete customer approval.
+2. BudPay captures the approved order and stores the job in Supabase.
+3. The owner enters a work story. Gemini extracts crew names, tasks, hours, and thank-you notes.
+4. Each name must match a saved crew member. The owner reviews hours, skill weights, and the suggested split.
+5. BudPay reconciles the split in whole cents and warns about unusually high hours or shares.
+6. The owner presses **Approve & Send**. The backend recalculates the split, checks the saved roster and paid job, and submits one idempotent PayPal payout batch.
+7. BudPay polls PayPal for each item and records each recipient's result in Supabase.
 
-The customer pays Tunde one lump sum payment. Now Tunde faces an awkward, time-consuming dilemma: **sharing the money.**
-- Who worked the most?
-- What is a fair share for each role's skill level?
-- Doing the math by hand is slow and easy to get wrong.
+The AI does not calculate money or choose recipients. Payout emails are read from the server-side roster and are not accepted from the browser.
 
-**BudPay** solves this:
-1. **Tell the story:** Tunde speaks or types what happened in plain words (*"Tola sewed for 8 hours. Bisi finished for 5 hours. Kunle did delivery for 2 hours."*).
-2. **AI extracts the facts:** Gemini parses the story into structured roles, hours, and tasks.
-3. **Transparent math:** BudPay subtracts upfront material costs, lets Tunde set his own profit share via a slider, and computes the crew payout using weighted points.
-4. **Human in control:** Tunde reviews, tweaks any number or bonus, and approves.
-5. **Instant split payout:** With one click of **Send**, PayPal Payouts sends money to everyone simultaneously, accompanied by personalized AI thank-you notes.
+## Stack
 
----
+- Frontend: Next.js App Router, React, TypeScript, Tailwind CSS
+- Backend: Express, Node.js ES modules
+- AI: Google Gemini structured story parsing
+- Payments: PayPal Sandbox Orders and Payouts APIs
+- Storage: Supabase REST API and PostgreSQL
 
-## 2. Architecture & Tech Stack
+## Setup
 
-```
-   ┌─────────────────────────────────────────────────────────┐
-   │               Frontend (Next.js Dining Room)            │
-   │  - Story submission (text/speech)                       │
-   │  - Interactive sliders & slice breakdown               │
-   │  - Real-time payout receipt & status                    │
-   └───────────────────────────┬─────────────────────────────┘
-                               │ HTTP / JSON
-   ┌───────────────────────────▼─────────────────────────────┐
-   │               Backend (Express.js Kitchen)              │
-   │  - Strict Sandbox Guardrail & validation                │
-   │  - Deterministic whole-cent points & slices engine      │
-   │  - State machine: Draft -> Reviewed -> Approved -> Sent │
-   └───────────────┬─────────────────────────┬───────────────┘
-                   │                         │
-     ┌─────────────▼──────────┐   ┌──────────▼───────────────┐
-     │      Gemini AI         │   │   PayPal Sandbox APIs    │
-     │  - Story parsing & NLP │   │  - Orders (Customer Pay) │
-     │  - Personal thank-yous │   │  - Payouts (Crew Batch)  │
-     └────────────────────────┘   └──────────────────────────┘
+### 1. Prepare Supabase
+
+Open the Supabase SQL editor and run [`Backend/schema.sql`](Backend/schema.sql). Add each crew member with their actual PayPal Sandbox personal-account email, for example:
+
+```sql
+INSERT INTO people (name, role, email, default_job_weight)
+VALUES ('Tola', 'Apprentice / Sewing', 'the-real-sandbox-email@example.com', 1.5);
 ```
 
-- **Frontend:** Next.js (App Router, React 19, TypeScript, Tailwind CSS, Lucide icons)
-- **Backend:** Express.js (Node.js ES modules, CORS, Dotenv)
-- **AI:** Google Gemini API (Structured output parsing & tone-adaptive thank-you notes)
-- **Payments:** PayPal REST APIs (Sandbox Orders + Batch Payouts)
-- **Database:** Supabase / PostgreSQL (Tracking jobs, crew members, audit logs)
+Do not use placeholder addresses. Only people in this table can receive payouts.
 
----
+### 2. Configure and start the backend
 
-## 3. Strict Guardrails: Code Keeps the Rules
+Copy `Backend/.env.example` to `Backend/.env` and fill in:
 
-Even if the AI misunderstands or makes an error, the backend code strictly enforces safety locks:
+- PayPal **Sandbox** client ID and secret
+- Gemini API key
+- Supabase project URL and **service role** key
+- The frontend origin in `PAYPAL_RETURN_URL`
 
-| Rule | What the AI is told | What the Code enforces |
-|---|---|---|
-| **Boss share is untouched** | *"Do not change the boss's share"* | Boss share is derived **strictly** from the UI slider. The AI never sees or touches this number. |
-| **Exact Penny Match** | *"Make the numbers add up"* | Code computes strictly in integer whole cents. Total shares must equal 100.00% of the crew pile; otherwise, **Send is locked**. |
-| **No Auto-Sending** | *"Wait for the boss"* | Payouts require an explicit human state transition (`draft` &rarr; `reviewed` &rarr; `approved` &rarr; `sent`). The AI cannot trigger payment endpoints. |
-| **Whitelist Only** | *"Only pay people in the story"* | Payouts only go to pre-registered crew accounts. The AI cannot inject unknown recipient emails. |
-| **Idempotency Lock** | *(Prompt cannot handle this)* | Every payout batch has a unique cryptographic batch ID. Double-clicking or retrying will **never** pay twice. |
-| **Strict Sandbox Enforcement** | *"Use sandbox only"* | The server halts immediately on startup if connected to live PayPal endpoints. |
+Keep the Supabase service role key in the backend only. The backend refuses checkout and payouts when Supabase persistence is not configured. It also exits if the PayPal API URL is not a Sandbox host.
 
----
+Then run:
 
-## 4. Project Structure
-
-```
-├── Backend/
-│   ├── src/
-│   │   └── server.js            # Express app with sandbox safety checks & /api/health
-│   ├── .env.example             # Template for PayPal, Gemini, and Supabase credentials
-│   ├── package.json             # ES Module Express service
-├── Frontend/
-│   ├── src/
-│   │   └── app/                 # Next.js App Router & Tailwind UI
-│   ├── .env.local.example       # Points to Backend (http://localhost:5000)
-│   ├── package.json             # Next.js client
-├── .gitignore                   # Prevents credential and node_modules leakage
-└── README.md                    # Project documentation & reference
-```
-
----
-
-## 5. Getting Started Locally
-
-### Prerequisites
-- Node.js v20+ / v24+
-- npm or pnpm
-
-### 1. Backend Setup
 ```bash
 cd Backend
 npm install
-cp .env.example .env
-
 npm run dev
-
 ```
 
-### 2. Frontend Setup
+### 3. Start the frontend
+
+Copy `Frontend/.env.local.example` to `Frontend/.env.local`, set `NEXT_PUBLIC_API_URL` to the backend URL, and run:
+
 ```bash
 cd Frontend
 npm install
 npm run dev
-
 ```
 
-### 3. Verify Health
-Open [http://localhost:3000](http://localhost:3000) to see the live connection status connecting the Next.js dining room to the Express kitchen.
+Open [http://localhost:3000](http://localhost:3000). Create an order, open its PayPal approval link, approve it with a Sandbox buyer, then return to BudPay and click **I approved it — confirm customer payment**. The rest of the wizard stays locked until PayPal confirms capture.
 
----
+## Safety and payout behavior
 
-## 6. Hackathon Roadmap
+- Customer payment, costs, boss share, and crew allocations use integer cents.
+- The backend recalculates each crew member's cents from the saved job and submitted hours/weights before payout.
+- Recipients must be active people in Supabase. The backend chooses their saved email.
+- Payout requires a captured customer order and a human press of **Approve & Send**.
+- Jobs move through `draft -> reviewed -> approved -> sent` and are stored durably.
+- A job is atomically claimed with a stable sender batch ID and the exact payout request before contacting PayPal. Retries reuse that saved request and sender ID; PayPal processes a sender batch ID only once within 30 days. BudPay retrieves the original batch on a duplicate response. After the retry window, the job requires manual reconciliation.
+- The receipt marks a person **Paid** only when PayPal reports that item's status as `SUCCESS`.
+- Story, approval, payout, and status events are written to `job_events`; payout item statuses are saved in `payouts`.
 
-- [x] **Day 1 (Nov 4): Kitchen & Dining Room** &mdash; Scaffolding, Express & Next.js connection, sandbox safety verification, project plan alignment.
-- [ ] **Day 2 (Nov 5): PayPal Auth & Sandbox Testing** &mdash; Sandbox credentials, OAuth2 token generation, single test payout.
-- [ ] **Day 3 (Nov 6): Story Understanding** &mdash; Gemini API integration to parse plain-text job stories into structured crew rosters.
-- [ ] **Day 4 (Nov 7): Fair Pay Math Engine** &mdash; Points weighted calculation, whole-cent rounding (pennies rule), automated guardrail tests.
-- [ ] **Day 5 (Nov 8): Interactive Experience** &mdash; Story box, review breakdown, dynamic sliders, bonus allocator.
-- [ ] **Day 6 (Nov 9): Full Money Connection** &mdash; Customer checkout integration, PayPal batch payouts, real-time receipt status dashboard.
-- [ ] **Day 7 (Nov 10): Polish & Edge Cases** &mdash; Anomaly alerts ("this looks odd"), idempotent payment verification.
-- [ ] **Day 8 (Nov 11): Deployment & Demo** &mdash; Live hosting, 3-minute video walkthrough, final documentation.
-- [ ] **Day 9 (Nov 12): Buffer & Early Submission.**
+## Remaining before a public demo
+
+- Configure real Sandbox buyer and crew accounts and Supabase credentials.
+- Run complete Sandbox customer-to-crew payout scenarios and confirm each recipient's account and receipt status.
+- Deploy the backend and frontend with their secrets configured, record the demo, and complete hackathon submission requirements.
+
+The app is a Sandbox hackathon prototype. It does not implement production user authentication or crew logins.
 

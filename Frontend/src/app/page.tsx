@@ -1,153 +1,248 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { CheckCircle2, AlertCircle, RefreshCw, ArrowRight, ShieldCheck, HeartHandshake, Sparkles } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Sparkles,
+  ShieldCheck,
+  CheckCircle2,
+  ArrowRight,
+  Calculator,
+  Users,
+  History,
+  Lock,
+  HeartHandshake,
+  DollarSign,
+  Clock,
+  Layers,
+  ChevronRight,
+  Zap,
+  HelpCircle
+} from 'lucide-react';
 
-interface HealthResponse {
-  status: string;
-  app: string;
-  environment: string;
-  timestamp: string;
-}
-
-export default function Home() {
-  const [backendHealth, setBackendHealth] = useState<HealthResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const checkBackend = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-      const res = await fetch(`${apiUrl}/api/health`);
-      if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setBackendHealth(data);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to reach backend kitchen');
-      setBackendHealth(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    checkBackend();
-  }, []);
-
+export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
-      {/* Top Navbar */}
-      <header className="w-full border-b border-slate-200 bg-white/80 backdrop-blur sticky top-0 z-10 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-            B
-          </div>
-          <div>
-            <span className="font-extrabold text-xl tracking-tight text-slate-900">BudPay</span>
-            <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-              PayPal AI Hackathon
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center space-x-3 text-sm">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Sandbox Mode
-          </span>
-        </div>
-      </header>
-
+    <div className="space-y-24 py-10 sm:py-16">
       {/* Hero Section */}
-      <main className="max-w-4xl mx-auto px-6 py-12 flex-1 flex flex-col items-center justify-center text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium mb-6">
-          <Sparkles className="w-3.5 h-3.5" />
-          The Fair Pay Helper
+      <section aria-labelledby="hero-heading" className="max-w-5xl mx-auto px-4 sm:px-8 text-center space-y-8">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-sm">
+          <Sparkles className="w-4 h-4 text-blue-600" aria-hidden="true" />
+          <span>PayPal AI Hackathon 2026 &bull; Fair Pay Helper</span>
         </div>
 
-        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 max-w-2xl leading-tight">
-          PayPal moves the money. <br />
-          <span className="text-blue-600">BudPay</span> helps the boss decide what is fair.
+        <h1
+          id="hero-heading"
+          className="text-4xl sm:text-6xl font-black text-slate-900 tracking-tight leading-[1.1] max-w-4xl mx-auto"
+        >
+          PayPal moves the money.{' '}
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
+            BudPay helps the boss decide what is fair.
+          </span>
         </h1>
 
-        <p className="mt-4 text-base sm:text-lg text-slate-600 max-w-xl">
-          Got paid in a lump sum? Tell BudPay what your crew did in your own words.
-          Gemini extracts the work, BudPay calculates the fair split to the exact cent, and PayPal pays everyone at once.
+        <p className="text-base sm:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed font-normal">
+          For solo service owners splitting lump-sum customer payments with their crew. Tell the story in plain words, adjust the boss slider, and let deterministic whole-cent math dispatch real PayPal Sandbox payouts.
         </p>
 
-        {/* Milestone 1 Status Card */}
-        <div className="mt-10 w-full max-w-lg bg-white p-6 rounded-2xl shadow-sm border border-slate-200 text-left">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-            <div>
-              <h2 className="font-semibold text-slate-900 text-base">Day 1 Connection Check</h2>
-              <p className="text-xs text-slate-500">Checking communication between Dining Room (Next.js) & Kitchen (Express.js)</p>
-            </div>
-            <button
-              onClick={checkBackend}
-              className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
-              title="Refresh connection"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+        {/* Primary Action Buttons */}
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
+          <Link
+            href="/split"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-base shadow-lg shadow-blue-500/25 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
+          >
+            <Calculator className="w-5 h-5" aria-hidden="true" />
+            Start Fair Pay Split
+            <ArrowRight className="w-5 h-5" aria-hidden="true" />
+          </Link>
 
+          <Link
+            href="/how-it-works"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-base border border-slate-300 shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
+          >
+            <HelpCircle className="w-5 h-5 text-slate-500" aria-hidden="true" />
+            How It Works
+          </Link>
+        </div>
+
+        {/* Trust Badges */}
+        <div className="pt-6 flex flex-wrap items-center justify-center gap-6 sm:gap-10 text-xs font-semibold text-slate-500">
+          <div className="flex items-center gap-1.5 text-emerald-800">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+            <span>PayPal Sandbox Verified</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-700">
+            <Lock className="w-4 h-4 text-blue-600" aria-hidden="true" />
+            <span>Deterministic Math Guardrails</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-700">
+            <CheckCircle2 className="w-4 h-4 text-indigo-600" aria-hidden="true" />
+            <span>Zero-Downtime Resilience</span>
+          </div>
+        </div>
+      </section>
+
+      {/* The 4 Core Principles Preview */}
+      <section aria-labelledby="pillars-heading" className="max-w-6xl mx-auto px-4 sm:px-8">
+        <div className="text-center space-y-3 mb-12">
+          <span className="text-xs font-bold uppercase tracking-wider text-blue-600">The Architecture</span>
+          <h2 id="pillars-heading" className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+            How The Money Actually Moves
+          </h2>
+          <p className="text-sm sm:text-base text-slate-600 max-w-xl mx-auto">
+            BudPay removes the awkwardness and secrecy around crew splits with 4 transparent guardrails.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Card 1 */}
+          <article className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-3 hover:border-blue-300 transition">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+              1
+            </div>
+            <h3 className="font-bold text-slate-900 text-lg">Money & Costs First</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Customer pays upfront. Material expenses (fabric, spices, fuel) come off first before dividing anything.
+            </p>
+          </article>
+
+          {/* Card 2 */}
+          <article className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-3 hover:border-blue-300 transition">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+              2
+            </div>
+            <h3 className="font-bold text-slate-900 text-lg">Plain Words Story</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Boss tells the story naturally. Gemini AI extracts roles, hours, and skill weights. AI never touches dollar amounts.
+            </p>
+          </article>
+
+          {/* Card 3 */}
+          <article className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-3 hover:border-blue-300 transition">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+              3
+            </div>
+            <h3 className="font-bold text-slate-900 text-lg">The Pennies Rule</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Boss slider decides the boss profit. The crew pile is divided using deterministic integer math down to the whole cent.
+            </p>
+          </article>
+
+          {/* Card 4 */}
+          <article className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-3 hover:border-blue-300 transition">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              4
+            </div>
+            <h3 className="font-bold text-slate-900 text-lg">PayPal Batch Payout</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Single approved batch payout sends exact funds to each crew email with personal appreciation notes and live status.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      {/* The Tunde Example Featurette */}
+      <section aria-labelledby="example-banner-heading" className="max-w-5xl mx-auto px-4 sm:px-8">
+        <div className="bg-gradient-to-br from-slate-900 to-blue-950 text-white rounded-3xl p-8 sm:p-12 shadow-xl space-y-8">
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">Frontend (Next.js)</span>
-              <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
-                <CheckCircle2 className="w-4 h-4" /> Ready
-              </span>
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-400">Worked Example</span>
+            <h2 id="example-banner-heading" className="text-2xl sm:text-4xl font-extrabold tracking-tight">
+              &ldquo;Tola sewed for 8 hours. Bisi did finishing for 5 hours. Kunle did delivery for 2 hours.&rdquo;
+            </h2>
+            <p className="text-sm text-slate-300 max-w-2xl">
+              From a $200.00 customer payment with $40.00 cloth costs and $90.00 boss share, the $70.00 crew pile splits with mathematical perfection:
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10 space-y-1">
+              <span className="text-xs font-semibold text-slate-400">Tola (Apprentice)</span>
+              <div className="text-2xl font-bold text-emerald-400">$35.00</div>
+              <span className="text-[11px] text-slate-300">8 hrs &times; 1.5 weight (50.0%)</span>
             </div>
 
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">Backend (Express.js)</span>
-              {loading ? (
-                <span className="text-amber-500 text-xs font-medium">Pinging localhost:5000...</span>
-              ) : backendHealth ? (
-                <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
-                  <CheckCircle2 className="w-4 h-4" /> Connected ({backendHealth.status})
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-rose-500 font-medium text-xs">
-                  <AlertCircle className="w-4 h-4" /> {error || 'Offline'}
-                </span>
-              )}
+            <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10 space-y-1">
+              <span className="text-xs font-semibold text-slate-400">Bisi (Finishing)</span>
+              <div className="text-2xl font-bold text-emerald-400">$29.17</div>
+              <span className="text-[11px] text-slate-300">5 hrs &times; 2.0 weight (41.7%)</span>
             </div>
 
-            {backendHealth && (
-              <div className="mt-3 p-3 rounded-lg bg-slate-50 text-xs text-slate-600 border border-slate-100 space-y-1">
-                <div><strong>Backend:</strong> {backendHealth.app}</div>
-                <div><strong>Env:</strong> {backendHealth.environment}</div>
-                <div><strong>Server Time:</strong> {new Date(backendHealth.timestamp).toLocaleTimeString()}</div>
-              </div>
-            )}
+            <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10 space-y-1">
+              <span className="text-xs font-semibold text-slate-400">Kunle (Rider)</span>
+              <div className="text-2xl font-bold text-emerald-400">$5.83</div>
+              <span className="text-[11px] text-slate-300">2 hrs &times; 1.0 weight (8.3%)</span>
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-white/10">
+            <span className="text-xs text-slate-400 font-mono">
+              Sum: $35.00 + $29.17 + $5.83 = $70.00 exact (0 penny float discrepancy)
+            </span>
+            <Link
+              href="/split"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400"
+            >
+              Test This Job Now
+              <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
         </div>
+      </section>
 
-        {/* 6 Steps Preview */}
-        <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full text-left text-sm">
-          <div className="p-4 rounded-xl bg-white border border-slate-200">
-            <div className="font-bold text-slate-900 mb-1">1. Tell the Story</div>
-            <p className="text-xs text-slate-500">Boss describes who did what in plain words. Gemini extracts hours & roles.</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white border border-slate-200">
-            <div className="font-bold text-slate-900 mb-1">2. Slices & Sliders</div>
-            <p className="text-xs text-slate-500">Points = hours × weight. Boss adjusts sliders. Code enforces 100% exact penny match.</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white border border-slate-200">
-            <div className="font-bold text-slate-900 mb-1">3. One-Click Payout</div>
-            <p className="text-xs text-slate-500">PayPal Payouts batch sends money + thank-you note to every crew member instantly.</p>
-          </div>
+      {/* Navigation Quick Links Section */}
+      <section aria-labelledby="quick-nav-heading" className="max-w-5xl mx-auto px-4 sm:px-8 space-y-6">
+        <h2 id="quick-nav-heading" className="text-xl font-bold text-slate-900 text-center">
+          Explore BudPay Dedicated Modules
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <Link
+            href="/split"
+            className="group bg-white border border-slate-200 rounded-3xl p-6 shadow-sm hover:border-blue-400 hover:shadow-md transition space-y-3"
+          >
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:scale-110 transition">
+              <Calculator className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 group-hover:text-blue-600 transition flex items-center justify-between">
+              <span>Fair Pay Split</span>
+              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition" />
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Run the 4-step interactive wizard from customer payment to live PayPal receipt.
+            </p>
+          </Link>
+
+          <Link
+            href="/roster"
+            className="group bg-white border border-slate-200 rounded-3xl p-6 shadow-sm hover:border-blue-400 hover:shadow-md transition space-y-3"
+          >
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition">
+              <Users className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 group-hover:text-blue-600 transition flex items-center justify-between">
+              <span>Crew Roster</span>
+              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition" />
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Add and manage active crew members, baseline skill weights, and PayPal emails dynamically.
+            </p>
+          </Link>
+
+          <Link
+            href="/history"
+            className="group bg-white border border-slate-200 rounded-3xl p-6 shadow-sm hover:border-blue-400 hover:shadow-md transition space-y-3"
+          >
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-110 transition">
+              <History className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 group-hover:text-blue-600 transition flex items-center justify-between">
+              <span>Payout History</span>
+              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition" />
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Audit past jobs, view captured payments, and verify PayPal batch transaction IDs.
+            </p>
+          </Link>
         </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="w-full border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-400">
-        BudPay &bull; Built for PayPal AI Hackathon (Nov 2026)
-      </footer>
+      </section>
     </div>
   );
 }
