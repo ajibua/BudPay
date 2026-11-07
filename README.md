@@ -14,7 +14,7 @@ BudPay helps a small business owner split a customer payment among crew members.
 6. The owner presses **Approve & Send**. The backend recalculates the split, checks the saved roster and paid job, and submits one idempotent PayPal payout batch.
 7. BudPay polls PayPal for each item and records each recipient's result in Supabase.
 
-The AI does not calculate money or choose recipients. Payout emails are read from the server-side roster and are not accepted from the browser.
+The AI does not calculate money or choose recipients. A roster selection uses its server-side email; otherwise, the owner can enter a verified Sandbox email directly.
 
 ## Stack
 
@@ -35,7 +35,7 @@ INSERT INTO people (name, role, email, default_job_weight)
 VALUES ('Tola', 'Apprentice / Sewing', 'the-real-sandbox-email@example.com', 1.5);
 ```
 
-Do not use placeholder addresses. Only people in this table can receive payouts.
+The roster is optional for payouts: saved entries can prefill a recipient, or you can enter a verified PayPal Sandbox email directly in the split screen. PayPal's item status confirms whether each address received its payout.
 
 ### 2. Configure and start the backend
 
@@ -72,7 +72,7 @@ Open [http://localhost:3000](http://localhost:3000). Create an order, open its P
 
 - Customer payment, costs, boss share, and crew allocations use integer cents.
 - The backend recalculates each crew member's cents from the saved job and submitted hours/weights before payout.
-- Recipients must be active people in Supabase. The backend chooses their saved email.
+- Roster selections use the active person's saved email. Directly entered Sandbox emails are validated by the backend and sent as entered.
 - Payout requires a captured customer order and a human press of **Approve & Send**.
 - Jobs move through `draft -> reviewed -> approved -> sent` and are stored durably.
 - A job is atomically claimed with a stable sender batch ID and the exact payout request before contacting PayPal. Retries reuse that saved request and sender ID; PayPal processes a sender batch ID only once within 30 days. BudPay retrieves the original batch on a duplicate response. After the retry window, the job requires manual reconciliation.

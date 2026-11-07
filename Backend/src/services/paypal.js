@@ -183,11 +183,21 @@ export async function createBatchPayout({ payoutItems, emailSubject, emailMessag
 
   const senderBatchId = customBatchId || `budpay_batch_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
+  const senderItemIds = new Set();
   const items = payoutItems.map((item, index) => {
+    const recipientEmail = String(item.recipientEmail || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+      throw new Error(`A valid saved PayPal email is required for payout item #${index + 1}.`);
+    }
     const numericAmount = Number(item.amount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0 || Math.abs(numericAmount * 100 - Math.round(numericAmount * 100)) > 1e-7) {
       throw new Error(`Invalid payout amount for recipient: ${item.recipientEmail}`);
     }
+    const senderItemId = String(item.itemId || `item_${index}`).slice(0, 30);
+    if (senderItemIds.has(senderItemId)) {
+      throw new Error('Payout item IDs must be unique within a PayPal batch.');
+    }
+    senderItemIds.add(senderItemId);
     return {
       recipient_type: 'EMAIL',
       amount: {
@@ -195,8 +205,8 @@ export async function createBatchPayout({ payoutItems, emailSubject, emailMessag
         currency: item.currency || currency,
       },
       note: item.note || 'Fair pay from BudPay',
-      receiver: item.recipientEmail,
-      sender_item_id: item.itemId || `item_${index}`,
+      receiver: recipientEmail,
+      sender_item_id: senderItemId,
     };
   });
 

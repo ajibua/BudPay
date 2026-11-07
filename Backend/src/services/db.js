@@ -274,10 +274,49 @@ export async function updateJobPayment(jobId, { paypalOrderId, paypalCaptureId }
     throw new Error(`Job not found: ${jobId}`);
   }
 
+export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutRequest) {
+  const job = await getJob(jobId);
+  if (!job || job.status !== 'approved' || !job.paymentCaptured || job.paypalSenderBatchId !== senderBatchId) {
+    throw new Error('The claimed payout cannot be repaired because the job state changed.');
+  }
+  const existingItems = job.payoutRequest?.payoutItems;
+  const hasValidRecipients = Array.isArray(existingItems) && existingItems.length > 0 && existingItems.every(item =>
+    typeof item.recipientEmail === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.recipientEmail)
+  );
+  if (hasValidRecipients) {
+    throw new Error('The saved payout request already has recipients and cannot be replaced.');
+  }
+
+  if (isPersistentStoreConfigured) {
+    try {
+      const rows = await requestTable('jobs', {
+        method: 'PATCH',
+        query: `id=eq.${encodeURIComponent(jobId)}&status=eq.approved&payment_captured=eq.true&paypal_sender_batch_id=eq.${encodeURIComponent(senderBatchId)}`,
+        body: { payout_request: payoutRequest }
+      });
+      if (rows?.[0]) {
+        await writeEvent(jobId, 'payout_request_repaired', { senderBatchId, recipients: payoutRequest.payoutItems.length });
+        return mapJob(rows[0]);
+      }
+      throw new Error('The claimed payout changed before it could be repaired.');
+    } catch (e) {
+      throw new Error(`Could not repair claimed payout in Supabase: ${e.message}`);
+    }
+  }
+
+  const memoryJob = inMemoryJobs.get(jobId);
+  if (!memoryJob || memoryJob.paypal_sender_batch_id !== senderBatchId) {
+    throw new Error('The claimed payout changed before it could be repaired.');
+  }
+  memoryJob.payout_request = payoutRequest;
+  await writeEvent(jobId, 'payout_request_repaired', { senderBatchId, recipients: payoutRequest.payoutItems.length });
+  return mapJob(memoryJob);
+}
+
   export async function recordPayout({ jobId, batchId, allocations }) {
     const rows = allocations.map(alloc => ({
       job_id: jobId,
-      person_id: alloc.personId || alloc.id,
+      person_id: alloc.personId || null,
       recipient_email: alloc.email,
       role: alloc.role || alloc.job,
       hours: alloc.hours,

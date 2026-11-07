@@ -96,7 +96,7 @@ export default function SplitWizardPage() {
       job: 'Sewing',
       hours: 8,
       jobWeight: 1.5,
-      email: 'sb-nzegj53708550@personal.example.com',
+      email: '',
       thankYouNoteDraft: 'Thank you Tola for your hard work sewing all day!'
     },
     {
@@ -105,7 +105,7 @@ export default function SplitWizardPage() {
       job: 'Finishing',
       hours: 5,
       jobWeight: 2.0,
-      email: 'bisi@sandbox.example.com',
+      email: '',
       thankYouNoteDraft: 'Thank you Bisi for the meticulous finishing work!'
     },
     {
@@ -114,7 +114,7 @@ export default function SplitWizardPage() {
       job: 'Delivery',
       hours: 2,
       jobWeight: 1.0,
-      email: 'kunle@sandbox.example.com',
+      email: '',
       thankYouNoteDraft: 'Thank you Kunle for getting the packages safely to the clients!'
     }
   ]);
@@ -441,10 +441,9 @@ export default function SplitWizardPage() {
     );
   };
 
-  const handleSelectCrewPerson = (memberId: string, personId: string) => {
-    const person = savedCrew.find((entry: any) => entry.id === personId);
+  const handleUpdateCrewEmail = (memberId: string, email: string) => {
     setCrewList(prev => prev.map(member => member.id === memberId
-      ? { ...member, personId: person?.id || '', email: person?.email || '', name: person?.name || member.name }
+      ? { ...member, email, personId: undefined }
       : member));
   };
 
@@ -456,7 +455,9 @@ export default function SplitWizardPage() {
     }
     return warnings;
   });
-  const hasInvalidCrew = calculatedAllocations.some(member => !member.personId || member.hours <= 0 || (member.amountCents || 0) < 1);
+  const hasInvalidCrew = calculatedAllocations.some(member =>
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(member.email) || member.hours <= 0 || (member.amountCents || 0) < 1
+  );
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-8 py-10 space-y-8" ref={wizardTopRef} tabIndex={-1}>
@@ -910,21 +911,20 @@ export default function SplitWizardPage() {
                     </div>
 
                     <div>
-                      <label htmlFor={`person-${member.id}`} className="block font-bold text-slate-600 mb-1">
-                        Saved Crew Member
+                      <label htmlFor={`email-${member.id}`} className="block font-bold text-slate-600 mb-1">
+                        PayPal Sandbox Email
                       </label>
-                      <select
-                        id={`person-${member.id}`}
+                      <input
+                        id={`email-${member.id}`}
+                        type="email"
                         required
-                        value={member.personId || ''}
-                        onChange={e => handleSelectCrewPerson(member.id, e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Choose an active roster member</option>
-                        {savedCrew.map((person: any) => (
-                          <option key={person.id} value={person.id}>{person.name} - {person.email}</option>
-                        ))}
-                      </select>
+                        value={member.email}
+                        onChange={e => handleUpdateCrewEmail(member.id, e.target.value)}
+                        placeholder="verified-sandbox-account@example.com"
+                        aria-describedby={`email-hint-${member.id}`}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p id={`email-hint-${member.id}`} className="mt-1 text-[10px] text-slate-500">Roster matches are prefilled; you can enter another verified Sandbox email.</p>
                     </div>
                   </div>
 

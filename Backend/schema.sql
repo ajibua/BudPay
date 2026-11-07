@@ -1,4 +1,4 @@
-﻿CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS people (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -45,7 +45,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_paypal_sender_batch_id_unique ON jobs(pay
 CREATE TABLE IF NOT EXISTS payouts (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     job_id UUID NOT NULL REFERENCES jobs(id),
-    person_id UUID NOT NULL REFERENCES people(id),
+    person_id UUID REFERENCES people(id),
     recipient_email VARCHAR(255) NOT NULL,
     role VARCHAR(100) NOT NULL,
     hours NUMERIC(7, 2) NOT NULL DEFAULT 0,
@@ -74,13 +74,11 @@ CREATE TABLE IF NOT EXISTS job_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE payouts ALTER COLUMN person_id DROP NOT NULL;
+
 CREATE INDEX IF NOT EXISTS payouts_job_id_idx ON payouts(job_id);
 CREATE INDEX IF NOT EXISTS job_events_job_id_idx ON job_events(job_id, created_at);
 
--- Add actual PayPal Sandbox personal account addresses for your crew in Supabase:
--- INSERT INTO people (id, name, role, email, default_job_weight)
--- VALUES ('tola', 'Tola', 'Apprentice / Sewing', 'your-real-sandbox-email@example.com', 1.5);
-
-
-
-
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.people, public.jobs, public.payouts, public.job_events TO service_role;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;

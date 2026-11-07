@@ -142,8 +142,10 @@ export function calculateFairPay({
 
     return {
       id: m.id,
+      personId: m.personId || null,
       name: m.name,
       role: m.role || m.job,
+      email: m.email,
       hours: m.hours,
       jobWeight: m.jobWeight,
       points: m.points,

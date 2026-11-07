@@ -9,7 +9,7 @@ import {
 import { parseCrewStory } from './services/gemini.js';
 import { calculateFairPay, validatePaymentGuardrails } from './services/mathEngine.js';
 import {
-  createJob, updateJobStatus, updateJobPayment, updateJobFinancials, updateJobStory, claimJobForPayout,
+  createJob, updateJobStatus, updateJobPayment, updateJobFinancials, updateJobStory, claimJobForPayout, repairClaimedPayoutRequest,
   recordPayout, updatePayoutStatuses, getSavedPeople, findPeopleByIds, getJob,
   addSavedPerson, getAllJobs, isPersistentStoreConfigured
 } from './services/db.js';
@@ -50,6 +50,11 @@ function requireStorage(res) {
     error: 'Persistent Supabase storage must be configured before checkout or payouts are enabled.'
   });
   return false;
+}
+
+function payoutRequestHasRecipients(payoutRequest) {
+  return Array.isArray(payoutRequest?.payoutItems) && payoutRequest.payoutItems.length > 0 &&
+    payoutRequest.payoutItems.every(item => typeof item.recipientEmail === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.recipientEmail));
 }
 
 app.get('/api/health', (req, res) => {
@@ -322,8 +327,10 @@ app.post('/api/pay/approve-and-send', async (req, res) => {
 
     let payoutRequest;
     let senderBatchId;
+    const hasClaimedRequest = job.status === 'approved' && Boolean(job.paypalSenderBatchId && job.payoutRequest);
+    const repairClaimedRequest = hasClaimedRequest && !payoutRequestHasRecipients(job.payoutRequest);
 
-    if (job.status === 'approved' && job.paypalSenderBatchId && job.payoutRequest) {
+    if (hasClaimedRequest && !repairClaimedRequest) {
       senderBatchId = job.paypalSenderBatchId;
       retrySenderBatchId = senderBatchId;
       payoutRequest = job.payoutRequest;
@@ -332,31 +339,41 @@ app.post('/api/pay/approve-and-send', async (req, res) => {
         return res.status(400).json({ success: false, error: 'Between 1 and 50 crew allocations are required.' });
       }
 
-      const requestedIds = allocations.map(item => String(item.personId || item.id || ''));
-      if (requestedIds.some(id => !id) || new Set(requestedIds).size !== requestedIds.length) {
-        return res.status(400).json({ success: false, error: 'Each crew allocation must identify a different saved roster member.' });
+      const requestedIds = allocations.map(item => String(item.personId || '')).filter(Boolean);
+      if (new Set(requestedIds).size !== requestedIds.length) {
+        return res.status(400).json({ success: false, error: 'A saved crew member can appear only once in a payout.' });
       }
       const savedPeople = await findPeopleByIds(requestedIds);
       if (savedPeople.length !== requestedIds.length) {
-        return res.status(400).json({ success: false, error: 'Every payout recipient must be an active saved crew member.' });
+        return res.status(400).json({ success: false, error: 'A selected saved crew member is no longer active.' });
       }
       const personById = new Map(savedPeople.map(person => [person.id, person]));
+      const recipientEmails = new Set();
 
       const validAllocations = allocations.map((item, idx) => {
-        const personId = requestedIds[idx];
+        const personId = String(item.personId || '');
         const person = personById.get(personId);
-        if (!person) throw new Error(`Crew member #${idx + 1} is not on the active roster.`);
+        if (personId && !person) throw new Error(`Crew member #${idx + 1} is not on the active roster.`);
+        const email = String(person?.email || item.email || '').trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          throw new Error(`Enter a valid PayPal Sandbox email for ${person?.name || item.name || `crew member #${idx + 1}`}.`);
+        }
+        const normalizedEmail = email.toLowerCase();
+        if (recipientEmails.has(normalizedEmail)) {
+          throw new Error('Each PayPal recipient email can appear only once in a payout.');
+        }
+        recipientEmails.add(normalizedEmail);
         const hours = Number(item.hours);
         const jobWeight = Number(item.jobWeight);
         if (!Number.isFinite(hours) || hours <= 0 || hours > 1000 || !Number.isFinite(jobWeight) || jobWeight < 1 || jobWeight > 2.5) {
-          throw new Error(`Invalid hours or skill weight for ${person.name}.`);
+          throw new Error(`Invalid hours or skill weight for ${person?.name || item.name || `crew member #${idx + 1}`}.`);
         }
         return {
-          id: person.id,
-          personId: person.id,
-          name: person.name,
-          job: String(item.job || item.role || person.role || 'Crew Member').slice(0, 100),
-          email: person.email,
+          id: person?.id || String(item.id || `crew_${idx}`),
+          personId: person?.id || null,
+          name: person?.name || String(item.name || `Crew ${idx + 1}`).trim().slice(0, 100),
+          job: String(item.job || item.role || person?.role || 'Crew Member').slice(0, 100),
+          email,
           hours,
           jobWeight,
           thankYouNoteDraft: String(item.thankYouNoteDraft || item.thankYouNote || `Thank you ${person.name} for your great work!`).trim().slice(0, 500)
@@ -389,13 +406,15 @@ app.post('/api/pay/approve-and-send', async (req, res) => {
         job = await updateJobStatus(job.id, 'approved', { allocations: calculation.allocations });
       }
 
-      senderBatchId = `budpay_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+      senderBatchId = repairClaimedRequest
+        ? job.paypalSenderBatchId
+        : `budpay_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
       retrySenderBatchId = senderBatchId;
       const payoutItems = calculation.allocations.map((item, i) => ({
         recipientEmail: item.email,
         amount: item.amountCents / 100,
         note: item.thankYouNote || `Thank you ${item.name} for your work!`,
-        itemId: `item_${job.id}_${i}`.slice(0, 30)
+        itemId: `item_${i}_${job.id.replace(/-/g, '').slice(-20)}`
       }));
       payoutRequest = {
         allocations: calculation.allocations,
@@ -403,7 +422,11 @@ app.post('/api/pay/approve-and-send', async (req, res) => {
         emailSubject: String(emailSubject || "You've received your fair pay from BudPay!").slice(0, 255),
         emailMessage: String(emailMessage || 'Thank you for your hard work and great contribution!').slice(0, 1000)
       };
-      await claimJobForPayout(job.id, senderBatchId, payoutRequest);
+      if (repairClaimedRequest) {
+        await repairClaimedPayoutRequest(job.id, senderBatchId, payoutRequest);
+      } else {
+        await claimJobForPayout(job.id, senderBatchId, payoutRequest);
+      }
     }
 
     const paypalResult = await createBatchPayout({
