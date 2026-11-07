@@ -68,6 +68,69 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Create an order, open its PayPal approval link, approve it with a Sandbox buyer, then return to BudPay and click **I approved it — confirm customer payment**. The rest of the wizard stays locked until PayPal confirms capture.
 
+## Deploy the frontend and backend separately on Vercel
+
+This repository contains two independent Vercel projects. Import the same Git repository twice and set each project's **Root Directory** as shown below. Each app's `vercel.json` declares its framework (`nextjs` or `express`); Vercel deploys the Express app as a Vercel Function.
+
+Before deploying, run the latest [`Backend/schema.sql`](Backend/schema.sql) in the Supabase SQL editor. It includes the grants required by the backend and allows payout rows for recipients entered directly without selecting a saved roster person.
+
+### 1. Deploy the backend
+
+Create a Vercel project from this Git repository with:
+
+- **Project name:** `budpay-backend` (or your preferred name)
+- **Root Directory:** `Backend`
+- **Framework preset:** Express (or leave automatic detection enabled)
+- **Build command:** leave the default
+- **Output directory:** leave the default
+- **Install command:** leave the default (`npm install`)
+
+Add these in **Settings → Environment Variables** for Production and Preview as appropriate. Keep the PayPal and Supabase credentials server-side; do not add them to the frontend project or any `NEXT_PUBLIC_` variable.
+
+| Variable | Value |
+| --- | --- |
+| `PAYPAL_API_BASE` | `https://api-m.sandbox.paypal.com` |
+| `PAYPAL_CLIENT_ID` | PayPal Sandbox app client ID |
+| `PAYPAL_CLIENT_SECRET` | PayPal Sandbox app secret |
+| `PAYPAL_RETURN_URL` | Frontend's Vercel URL, added after the frontend is deployed |
+| `GEMINI_API_KEY` | Google AI API key |
+| `SUPABASE_URL` | Supabase project URL, such as `https://<project-ref>.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+
+Do not set `PORT`; Vercel provides the function runtime. Deploy the backend and copy its production URL, such as `https://budpay-backend.vercel.app`. Check `https://<backend-domain>/api/health`; it should report `persistentStorage: true` and `storageMode: "supabase"`.
+
+### 2. Deploy the frontend
+
+Create a second Vercel project from the same Git repository with:
+
+- **Project name:** `budpay-frontend` (or your preferred name)
+- **Root Directory:** `Frontend`
+- **Framework preset:** Next.js (automatic detection)
+- **Build command:** leave the default (`next build`)
+- **Output directory:** leave the default
+- **Install command:** leave the default (`npm install`)
+
+Set this environment variable for Production and Preview:
+
+| Variable | Value |
+| --- | --- |
+| `NEXT_PUBLIC_API_URL` | Backend's production URL, e.g. `https://budpay-backend.vercel.app` |
+
+Redeploy the frontend after changing this value; Next.js embeds `NEXT_PUBLIC_` values during the build. Copy the frontend's production URL when it deploys.
+
+### 3. Finish the PayPal return URL and verify
+
+In the backend project's environment variables, set `PAYPAL_RETURN_URL` to the frontend's production origin (for example, `https://budpay-frontend.vercel.app`, with no trailing slash), then redeploy the backend. For Preview deployments, use the frontend Preview URL if you want PayPal Sandbox approval to return to that preview.
+
+Then check:
+
+1. `https://<backend-domain>/api/health` reports Supabase persistence is enabled.
+2. `https://<backend-domain>/api/people` returns the saved roster.
+3. The frontend loads its presets and roster without a browser network/CORS error.
+4. Run an end-to-end customer checkout and payout using Sandbox accounts only, and confirm each payout item status in the app.
+
+Vercel environment variable changes take effect after redeployment. Keep `SUPABASE_SERVICE_ROLE_KEY`, `PAYPAL_CLIENT_SECRET`, and `GEMINI_API_KEY` only in the backend project. This prototype does not implement user authentication, so treat the deployed app as a Sandbox demo and do not use live PayPal credentials.
+
 ## Safety and payout behavior
 
 - Customer payment, costs, boss share, and crew allocations use integer cents.
