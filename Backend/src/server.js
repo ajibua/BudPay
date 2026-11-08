@@ -11,7 +11,7 @@ import { calculateFairPay, validatePaymentGuardrails } from './services/mathEngi
 import {
   createJob, updateJobStatus, updateJobPayment, updateJobFinancials, updateJobStory, claimJobForPayout, repairClaimedPayoutRequest,
   recordPayout, updatePayoutStatuses, getSavedPeople, findPeopleByIds, getJob,
-  addSavedPerson, getAllJobs, isPersistentStoreConfigured
+  addSavedPerson, updateSavedPerson, getAllJobs, isPersistentStoreConfigured
 } from './services/db.js';
 
 const PAYPAL_API_BASE = process.env.PAYPAL_API_BASE || 'https://api-m.sandbox.paypal.com';
@@ -80,27 +80,53 @@ app.post('/api/people', async (req, res) => {
   try {
     if (!requireStorage(res)) return;
     const { name, role, email, defaultWeight = 1.0 } = req.body;
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({ success: false, error: 'Crew member name is required.' });
-    }
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ success: false, error: 'A valid PayPal email is required.' });
-    }
-    const weight = Number(defaultWeight) || 1.0;
-    if (weight < 1.0 || weight > 2.5) {
-      return res.status(400).json({ success: false, error: 'Default skill weight must be between 1.0 and 2.5.' });
-    }
+    const validation = validatePersonInput({ name, role, email, defaultWeight });
+    if (validation.error) return res.status(400).json({ success: false, error: validation.error });
     const person = await addSavedPerson({
-      name: name.trim(),
-      role: (role || 'Crew Member').trim(),
-      email: email.trim(),
-      defaultWeight: weight
+      ...validation.value
     });
     res.json({ success: true, person });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+app.patch('/api/people/:personId', async (req, res) => {
+  try {
+    if (!requireStorage(res)) return;
+    const validation = validatePersonInput(req.body);
+    if (validation.error) return res.status(400).json({ success: false, error: validation.error });
+    const person = await updateSavedPerson(req.params.personId, validation.value);
+    res.json({ success: true, person });
+  } catch (err) {
+    const notFound = err.message.includes('not found or inactive');
+    res.status(notFound ? 404 : 500).json({ success: false, error: err.message });
+  }
+});
+
+function validatePersonInput({ name, role, email, defaultWeight = 1.0 }) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) {
+    return { error: 'Crew member name is required and must be 100 characters or fewer.' };
+  }
+  if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.trim().length > 255) {
+    return { error: 'A valid PayPal email of 255 characters or fewer is required.' };
+  }
+  if (role !== undefined && (typeof role !== 'string' || role.trim().length > 100)) {
+    return { error: 'Role must be 100 characters or fewer.' };
+  }
+  const weight = Number(defaultWeight);
+  if (!Number.isFinite(weight) || weight < 1.0 || weight > 2.5) {
+    return { error: 'Default skill weight must be between 1.0 and 2.5.' };
+  }
+  return {
+    value: {
+      name: name.trim(),
+      role: (role || 'Crew Member').trim(),
+      email: email.trim(),
+      defaultWeight: weight
+    }
+  };
+}
 
 const DYNAMIC_PRESETS = [
   {

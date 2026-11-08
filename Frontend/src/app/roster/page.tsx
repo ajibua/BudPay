@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Users, UserPlus, Mail, Award, CheckCircle2, AlertCircle, RefreshCw, ArrowRight } from 'lucide-react';
+import { Users, UserPlus, Mail, Award, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Pencil } from 'lucide-react';
 
 interface SavedPerson {
   id: string;
@@ -19,6 +19,7 @@ export default function RosterPage() {
 
   // New crew member form state
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
+  const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [name, setName] = useState<string>('');
   const [role, setRole] = useState<string>('');
   const [email, setEmail] = useState<string>('');
@@ -51,15 +52,15 @@ export default function RosterPage() {
     fetchPeople();
   }, []);
 
-  const handleAddPerson = async (e: React.FormEvent) => {
+  const handleSavePerson = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     setFormSuccess(null);
     setSubmitting(true);
 
     try {
-      const res = await fetch(`${API_URL}/api/people`, {
-        method: 'POST',
+      const res = await fetch(`${API_URL}/api/people${editingPersonId ? `/${encodeURIComponent(editingPersonId)}` : ''}`, {
+        method: editingPersonId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
@@ -74,11 +75,14 @@ export default function RosterPage() {
         throw new Error(json.error || 'Could not add crew member');
       }
 
-      setFormSuccess(`Added ${json.person.name} to the saved roster!`);
+      setFormSuccess(editingPersonId
+        ? `Updated ${json.person.name}'s crew details.`
+        : `Added ${json.person.name} to the saved roster!`);
       setName('');
       setRole('');
       setEmail('');
       setDefaultWeight(1.5);
+      setEditingPersonId(null);
       setShowAddForm(false);
       fetchPeople();
     } catch (err: any) {
@@ -86,6 +90,27 @@ export default function RosterPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const startEditingPerson = (person: SavedPerson) => {
+    setEditingPersonId(person.id);
+    setName(person.name);
+    setRole(person.role);
+    setEmail(person.email);
+    setDefaultWeight(person.defaultWeight);
+    setFormError(null);
+    setFormSuccess(null);
+    setShowAddForm(true);
+  };
+
+  const closeForm = () => {
+    setShowAddForm(false);
+    setEditingPersonId(null);
+    setName('');
+    setRole('');
+    setEmail('');
+    setDefaultWeight(1.5);
+    setFormError(null);
   };
 
   return (
@@ -97,7 +122,7 @@ export default function RosterPage() {
             Dynamic Roster
           </span>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-            Saved Crew Roster
+            Saved Crew details
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Manage your crew members, verified PayPal Sandbox payout emails, and baseline skill weights.
@@ -106,7 +131,13 @@ export default function RosterPage() {
 
         <button
           type="button"
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            if (showAddForm) closeForm();
+            else {
+              closeForm();
+              setShowAddForm(true);
+            }
+          }}
           aria-expanded={showAddForm}
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
         >
@@ -118,11 +149,11 @@ export default function RosterPage() {
       {/* Add Form */}
       {showAddForm && (
         <form
-          onSubmit={handleAddPerson}
-          aria-label="Add new crew member"
+          onSubmit={handleSavePerson}
+          aria-label={editingPersonId ? 'Edit crew member' : 'Add new crew member'}
           className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-5"
         >
-          <h2 className="text-xl font-bold text-slate-900">Add New Crew Member</h2>
+          <h2 className="text-xl font-bold text-slate-900">{editingPersonId ? 'Edit Crew Details' : 'Add New Crew'}</h2>
 
           {formError && (
             <div role="alert" className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 font-medium">
@@ -149,7 +180,7 @@ export default function RosterPage() {
 
             <div>
               <label htmlFor="person-role" className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                Default Role / Task
+                Default Role
               </label>
               <input
                 id="person-role"
@@ -197,7 +228,7 @@ export default function RosterPage() {
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={() => setShowAddForm(false)}
+              onClick={closeForm}
               className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
             >
               Cancel
@@ -207,7 +238,7 @@ export default function RosterPage() {
               disabled={submitting}
               className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition disabled:opacity-50"
             >
-              {submitting ? 'Saving Crew Member...' : 'Save to Roster'}
+              {submitting ? 'Saving Crew Member...' : editingPersonId ? 'Save Changes' : 'Save to Roster'}
             </button>
           </div>
         </form>
@@ -238,7 +269,7 @@ export default function RosterPage() {
         {loading ? (
           <div className="p-12 text-center bg-white border border-slate-200 rounded-3xl text-slate-400 text-sm">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
-            Loading dynamic crew roster from backend API...
+            Loading dynamic crew details from backend API...
           </div>
         ) : error ? (
           <div role="alert" className="p-6 bg-rose-50 border border-rose-200 rounded-3xl text-rose-800 text-sm flex items-center gap-3">
@@ -247,7 +278,7 @@ export default function RosterPage() {
           </div>
         ) : people.length === 0 ? (
           <div className="p-12 text-center bg-white border border-slate-200 rounded-3xl text-slate-500 text-sm">
-            No crew members saved yet. Click &ldquo;Add Crew Member&rdquo; above to get started.
+            No crew saved yet. Click &ldquo;Add Crew&rdquo; above to get started.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -260,9 +291,20 @@ export default function RosterPage() {
                   <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-800 font-extrabold flex items-center justify-center text-sm">
                     {person.name.slice(0, 2).toUpperCase()}
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                    {person.defaultWeight}&times; Skill Weight
-                  </span>
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                      {person.defaultWeight}&times; Skill Weight
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => startEditingPerson(person)}
+                      aria-label={`Edit ${person.name}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      Edit
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -286,7 +328,7 @@ export default function RosterPage() {
           href="/split"
           className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
         >
-          Proceed to Fair Pay Split
+          Proceed to sharing
           <ArrowRight className="w-4 h-4" aria-hidden="true" />
         </Link>
       </div>

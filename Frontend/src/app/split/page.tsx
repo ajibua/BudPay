@@ -26,8 +26,29 @@ import {
   CreditCard,
   Layers,
   Zap,
-  Users
+  Users,
+  Mic,
+  MicOff
 } from 'lucide-react';
+
+interface BrowserSpeechResult {
+  isFinal: boolean;
+  0: { transcript: string };
+}
+
+interface BrowserSpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { results: ArrayLike<BrowserSpeechResult> }) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 interface CrewMemberItem {
   id: string;
@@ -87,6 +108,10 @@ export default function SplitWizardPage() {
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [missingInfoAlert, setMissingInfoAlert] = useState<{ isMissing: boolean; question: string } | null>(null);
   const [clarificationInput, setClarificationInput] = useState<string>('');
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechBaseTextRef = useRef<string>('');
 
   // Step 3: Crew & Allocations
   const [crewList, setCrewList] = useState<CrewMemberItem[]>([
@@ -128,6 +153,75 @@ export default function SplitWizardPage() {
   const [isPollingReceipt, setIsPollingReceipt] = useState<boolean>(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+  const stopVoiceInput = () => {
+    speechRecognitionRef.current?.stop();
+    setIsListening(false);
+  };
+
+  const abortVoiceInput = () => {
+    speechRecognitionRef.current?.abort();
+    speechRecognitionRef.current = null;
+    setIsListening(false);
+  };
+
+  const startVoiceInput = () => {
+    const speechWindow = window as Window & {
+      SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+      webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    };
+    const SpeechRecognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSpeechError('Voice typing is not supported in this browser. Try a recent version of Chrome or Edge, or type your story below.');
+      return;
+    }
+
+    setSpeechError(null);
+    speechBaseTextRef.current = storyText.trim() ? `${storyText.trim()} ` : '';
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language || 'en-US';
+    speechRecognitionRef.current = recognition;
+
+    recognition.onresult = event => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+      for (let index = 0; index < event.results.length; index++) {
+        const result = event.results[index];
+        if (result.isFinal) finalTranscript += `${result[0].transcript} `;
+        else interimTranscript += result[0].transcript;
+      }
+      setStoryText(`${speechBaseTextRef.current}${finalTranscript}${interimTranscript}`.trim());
+    };
+
+    recognition.onerror = event => {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setSpeechError('Microphone access was blocked. Allow microphone access in your browser, then try again.');
+      } else if (event.error === 'no-speech') {
+        setSpeechError('No speech was detected. Try speaking again or type your story.');
+      } else if (event.error !== 'aborted') {
+        setSpeechError('Voice transcription stopped unexpectedly. Your story is still editable below.');
+      }
+    };
+
+    recognition.onend = () => {
+      speechRecognitionRef.current = null;
+      setIsListening(false);
+    };
+
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch {
+      speechRecognitionRef.current = null;
+      setIsListening(false);
+      setSpeechError('Could not start voice typing. Check microphone access and try again.');
+    }
+  };
+
+  useEffect(() => () => speechRecognitionRef.current?.abort(), []);
 
   // Fetch dynamic presets and saved crew on mount
   useEffect(() => {
@@ -481,10 +575,10 @@ export default function SplitWizardPage() {
               <li
                 key={s.num}
                 className={`p-3 rounded-2xl border transition flex flex-col sm:flex-row items-center gap-2 text-center sm:text-left ${isCurrent
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                    : isPast
-                      ? 'bg-blue-50 text-blue-900 border-blue-200 cursor-pointer hover:bg-blue-100'
-                      : 'bg-white text-slate-400 border-slate-200'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                  : isPast
+                    ? 'bg-blue-50 text-blue-900 border-blue-200 cursor-pointer hover:bg-blue-100'
+                    : 'bg-white text-slate-400 border-slate-200'
                   }`}
                 onClick={() => {
                   if (isPast) setCurrentStep(s.num as any);
@@ -492,10 +586,10 @@ export default function SplitWizardPage() {
               >
                 <span
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${isCurrent
-                      ? 'bg-white text-blue-700'
-                      : isPast
-                        ? 'bg-blue-200 text-blue-800'
-                        : 'bg-slate-100 text-slate-500'
+                    ? 'bg-white text-blue-700'
+                    : isPast
+                      ? 'bg-blue-200 text-blue-800'
+                      : 'bg-slate-100 text-slate-500'
                     }`}
                 >
                   {isPast ? '✓' : s.num}
@@ -507,9 +601,8 @@ export default function SplitWizardPage() {
         </ol>
       </nav>
 
-      {/* ======================================================== */}
-      {/* STEP 1: MONEY & COSTS                                    */}
-      {/* ======================================================== */}
+      {/* STEP 1: MONEY & COSTS*/}
+
       {currentStep === 1 && (
         <section aria-labelledby="step1-heading" className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6">
           <div>
@@ -548,7 +641,7 @@ export default function SplitWizardPage() {
                 />
               </div>
               <p id="payment-hint" className="text-xs text-slate-500">
-                Total lump sum received from the customer for the job.
+                Total money received from the customer for the job.
               </p>
 
               {/* Optional sandbox order simulator */}
@@ -653,9 +746,8 @@ export default function SplitWizardPage() {
         </section>
       )}
 
-      {/* ======================================================== */}
-      {/* STEP 2: TELL THE STORY                                   */}
-      {/* ======================================================== */}
+      {/* STEP 2: TELL THE STORY*/}
+
       {currentStep === 2 && (
         <section aria-labelledby="step2-heading" className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6">
           <div className="flex items-start justify-between">
@@ -687,6 +779,8 @@ export default function SplitWizardPage() {
                   key={item.id}
                   type="button"
                   onClick={() => {
+                    if (isListening) abortVoiceInput();
+                    setSpeechError(null);
                     setStoryText(item.story);
                     setBossShare(item.bossShare);
                     setMissingInfoAlert(null);
@@ -704,14 +798,51 @@ export default function SplitWizardPage() {
             <label htmlFor="story-textarea" className="block text-xs font-bold uppercase tracking-wider text-slate-700">
               Your Words / Job Story *
             </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={isListening ? stopVoiceInput : startVoiceInput}
+                aria-pressed={isListening}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-4 ${isListening
+                  ? 'bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-200'
+                  : 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 focus-visible:ring-blue-200'}`}
+              >
+                {isListening ? <MicOff className="h-4 w-4" aria-hidden="true" /> : <Mic className="h-4 w-4" aria-hidden="true" />}
+                {isListening ? 'Stop listening' : 'Tell your story'}
+              </button>
+              <p className="text-xs text-slate-500" role="status" aria-live="polite">
+                {isListening
+                  ? 'Listening… your transcript is appearing below.'
+                  : 'Voice typing adds to the story below. Review or edit it before continuing; your browser may process speech online.'}
+              </p>
+              {storyText.trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isListening) abortVoiceInput();
+                    setStoryText('');
+                    setSpeechError(null);
+                  }}
+                  className="text-xs font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                >
+                  Clear story
+                </button>
+              )}
+            </div>
+            {speechError && (
+              <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                {speechError}
+              </p>
+            )}
             <textarea
               id="story-textarea"
               rows={4}
               required
               value={storyText}
               onChange={e => setStoryText(e.target.value)}
+              readOnly={isListening}
               placeholder="e.g. Tola sewed for 8 hours. Bisi did the finishing for 5 hours. Kunle did the delivery, about 2 hours."
-              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500 leading-relaxed font-sans font-medium"
+              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500 leading-relaxed font-sans font-medium read-only:bg-blue-50"
             />
           </div>
 
@@ -768,7 +899,10 @@ export default function SplitWizardPage() {
           <div className="flex items-center justify-between pt-2">
             <button
               type="button"
-              onClick={() => setCurrentStep(1)}
+              onClick={() => {
+                if (isListening) stopVoiceInput();
+                setCurrentStep(1);
+              }}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -777,7 +911,7 @@ export default function SplitWizardPage() {
 
             <button
               type="button"
-              disabled={isAiLoading || !storyText.trim()}
+              disabled={isAiLoading || isListening || !storyText.trim()}
               onClick={handleParseStory}
               className="inline-flex items-center gap-2 px-7 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-sm shadow-md transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
             >
@@ -797,9 +931,7 @@ export default function SplitWizardPage() {
         </section>
       )}
 
-      {/* ======================================================== */}
-      {/* STEP 3: SLICES & SLIDERS                                 */}
-      {/* ======================================================== */}
+      {/* STEP 3: SLICES & SLIDERS*/}
       {currentStep === 3 && (
         <section aria-labelledby="step3-heading" className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-10 shadow-sm space-y-8">
           <div>
@@ -1020,117 +1152,115 @@ export default function SplitWizardPage() {
         </section>
       )}
 
-      {/* ======================================================== */}
-      {/* STEP 4: RECEIPT & LIVE POLLING                           */}
-      {/* ======================================================== */}
+      {/* STEP 4: RECEIPT & LIVE POLLING*/}
       {currentStep === 4 && (
         <section aria-labelledby="step4-heading" className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6">
           {(() => {
             const receiptAllocations = payoutResult?.allocations || calculatedAllocations;
             return (
               <>
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-md">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-            <h1 id="step4-heading" className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-              Payout Batch Submitted
-            </h1>
-            <p className="text-sm text-slate-600 max-w-md mx-auto">
-              Your approval was processed. PayPal Sandbox is executing the batch payout with live status tracking.
-            </p>
-          </div>
+                <div className="text-center space-y-2">
+                  <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-md">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <h1 id="step4-heading" className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+                    Payout Batch Submitted
+                  </h1>
+                  <p className="text-sm text-slate-600 max-w-md mx-auto">
+                    Your approval was processed. PayPal Sandbox is executing the batch payout with live status tracking.
+                  </p>
+                </div>
 
-          {/* Batch Status Card */}
-          <div className="p-6 rounded-3xl bg-slate-50 border border-slate-200 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
-              <div>
-                <span className="text-xs font-bold uppercase text-slate-400">PayPal Batch ID</span>
-                <p className="font-mono text-sm font-bold text-slate-800">{payoutResult?.batchId || 'N/A'}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-500">Live Status:</span>
-                {isPollingReceipt && <span className="text-[10px] text-slate-500">Checking item results...</span>}
-                <span
-                  role="status"
-                  aria-live="polite"
-                  className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${batchStatus === 'SUCCESS'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : batchStatus === 'PENDING' || batchStatus === 'PROCESSING'
-                        ? 'bg-blue-100 text-blue-800 animate-pulse'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                >
-                  {batchStatus}
-                </span>
-              </div>
-            </div>
-
-            {/* Recipients Live Status */}
-            <div className="space-y-3">
-              <span className="text-xs font-bold uppercase text-slate-500 block">
-                Crew Delivery Confirmations
-              </span>
-              <div className="space-y-2">
-                {receiptAllocations.map((m: CrewMemberItem) => {
-                  const itemStatus = String(itemStatuses[m.email] || 'PENDING').toUpperCase();
-                  const isProblem = ['FAILED', 'BLOCKED', 'DENIED', 'CANCELED', 'REFUNDED', 'RETURNED', 'UNCLAIMED'].includes(itemStatus);
-                  return (
-                    <div
-                      key={m.id}
-                      className="p-3.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between text-xs"
-                    >
-                      <div>
-                        <span className="font-bold text-slate-900">{m.name}</span>
-                        <span className="text-slate-400 font-mono text-[11px] block">{m.email}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-extrabold text-slate-900">${m.amountDollars}</span>
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${itemStatus === 'SUCCESS'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                              : isProblem
-                                ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                                : 'bg-amber-50 text-amber-800 border border-amber-200'
-                            }`}
-                        >
-                          {itemStatus === 'SUCCESS' ? 'Paid' : isProblem ? 'Problem' : 'Waiting'}
-                        </span>
-                      </div>
+                {/* Batch Status Card */}
+                <div className="p-6 rounded-3xl bg-slate-50 border border-slate-200 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                    <div>
+                      <span className="text-xs font-bold uppercase text-slate-400">PayPal Batch ID</span>
+                      <p className="font-mono text-sm font-bold text-slate-800">{payoutResult?.batchId || 'N/A'}</p>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-500">Live Status:</span>
+                      {isPollingReceipt && <span className="text-[10px] text-slate-500">Checking item results...</span>}
+                      <span
+                        role="status"
+                        aria-live="polite"
+                        className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${batchStatus === 'SUCCESS'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : batchStatus === 'PENDING' || batchStatus === 'PROCESSING'
+                            ? 'bg-blue-100 text-blue-800 animate-pulse'
+                            : 'bg-amber-100 text-amber-800'
+                          }`}
+                      >
+                        {batchStatus}
+                      </span>
+                    </div>
+                  </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
-            <Link
-              href="/history"
-              className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
-            >
-              View in Audit History &rarr;
-            </Link>
+                  {/* Recipients Live Status */}
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold uppercase text-slate-500 block">
+                      Crew Delivery Confirmations
+                    </span>
+                    <div className="space-y-2">
+                      {receiptAllocations.map((m: CrewMemberItem) => {
+                        const itemStatus = String(itemStatuses[m.email] || 'PENDING').toUpperCase();
+                        const isProblem = ['FAILED', 'BLOCKED', 'DENIED', 'CANCELED', 'REFUNDED', 'RETURNED', 'UNCLAIMED'].includes(itemStatus);
+                        return (
+                          <div
+                            key={m.id}
+                            className="p-3.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <span className="font-bold text-slate-900">{m.name}</span>
+                              <span className="text-slate-400 font-mono text-[11px] block">{m.email}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="font-extrabold text-slate-900">${m.amountDollars}</span>
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${itemStatus === 'SUCCESS'
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  : isProblem
+                                    ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                                    : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                  }`}
+                              >
+                                {itemStatus === 'SUCCESS' ? 'Paid' : isProblem ? 'Problem' : 'Waiting'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentStep(1);
-                setJobId(null);
-                setPaypalOrderId(null);
-                setApprovalUrl(null);
-                setCustomerPaymentCaptured(false);
-                setCheckoutError(null);
-                setPayoutResult(null);
-                setBatchStatus('PENDING');
-                setItemStatuses({});
-                setIsPollingReceipt(false);
-              }}
-              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-sm transition"
-            >
-              Start New Job Split
-            </button>
-          </div>
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
+                  <Link
+                    href="/history"
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  >
+                    View in Audit History &rarr;
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentStep(1);
+                      setJobId(null);
+                      setPaypalOrderId(null);
+                      setApprovalUrl(null);
+                      setCustomerPaymentCaptured(false);
+                      setCheckoutError(null);
+                      setPayoutResult(null);
+                      setBatchStatus('PENDING');
+                      setItemStatuses({});
+                      setIsPollingReceipt(false);
+                    }}
+                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-sm transition"
+                  >
+                    Start New Job Split
+                  </button>
+                </div>
               </>
             );
           })()}

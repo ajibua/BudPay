@@ -10,9 +10,9 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
-    { href: '/split', label: 'Fair Pay Split', icon: Calculator },
+    { href: '/split', label: 'Fair share', icon: Calculator },
     { href: '/how-it-works', label: 'How It Works', icon: HelpCircle },
-    { href: '/roster', label: 'Crew Roster', icon: Users },
+    { href: '/roster', label: 'Crew details', icon: Users },
     { href: '/history', label: 'Payout History', icon: History }
   ];
 
@@ -46,7 +46,7 @@ export default function Navbar() {
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-xl tracking-tight text-slate-900">BudPay</span>
                 <span className="hidden sm:inline text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  The Fair Pay Helper
+                  The Fair share helper
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block">
@@ -66,8 +66,8 @@ export default function Navbar() {
                   href={link.href}
                   aria-current={active ? 'page' : undefined}
                   className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600 ${active
-                      ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${active ? 'text-blue-600' : 'text-slate-400'}`} aria-hidden="true" />
@@ -93,7 +93,7 @@ export default function Navbar() {
               className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
             >
               <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-              Start Fair Pay
+              Start sharing
             </Link>
 
             {/* Mobile Menu Button */}
@@ -126,8 +126,8 @@ export default function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                   aria-current={active ? 'page' : undefined}
                   className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition ${active
-                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                      : 'text-slate-700 hover:bg-slate-100'
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                    : 'text-slate-700 hover:bg-slate-100'
                     }`}
                 >
                   <Icon className={`w-4 h-4 ${active ? 'text-blue-600' : 'text-slate-400'}`} aria-hidden="true" />

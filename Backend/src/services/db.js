@@ -485,6 +485,27 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       return mapPerson(person);
     }
 
+    export async function updateSavedPerson(personId, { name, role, email, defaultWeight }) {
+      if (isPersistentStoreConfigured) {
+        try {
+          const rows = await requestTable('people', {
+            method: 'PATCH',
+            query: `id=eq.${encodeURIComponent(personId)}&active=eq.true`,
+            body: { name, role, email, default_job_weight: defaultWeight }
+          });
+          if (rows?.[0]) return mapPerson(rows[0]);
+          throw new Error('Crew member not found or inactive.');
+        } catch (e) {
+          throw new Error(`Could not update crew member in Supabase: ${e.message}`);
+        }
+      }
+
+      const person = DEFAULT_PEOPLE.find(item => item.id === personId);
+      if (!person) throw new Error('Crew member not found.');
+      Object.assign(person, { name, role, email, default_job_weight: defaultWeight });
+      return mapPerson(person);
+    }
+
     export async function getAllJobs() {
       if (isPersistentStoreConfigured) {
         try {

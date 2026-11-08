@@ -202,7 +202,7 @@ export default function LandingPage() {
               <Calculator className="w-5 h-5" />
             </div>
             <h3 className="font-bold text-slate-900 group-hover:text-blue-600 transition flex items-center justify-between">
-              <span>Fair Pay Split</span>
+              <span>Fair sharing</span>
               <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition" />
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
@@ -218,7 +218,7 @@ export default function LandingPage() {
               <Users className="w-5 h-5" />
             </div>
             <h3 className="font-bold text-slate-900 group-hover:text-blue-600 transition flex items-center justify-between">
-              <span>Crew Roster</span>
+              <span>Crew details</span>
               <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition" />
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">

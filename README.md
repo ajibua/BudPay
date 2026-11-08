@@ -8,13 +8,15 @@ BudPay helps a small business owner split a customer payment among crew members.
 
 1. Create a PayPal Sandbox order and complete customer approval.
 2. BudPay captures the approved order and stores the job in Supabase.
-3. The owner enters a work story. Gemini extracts crew names, tasks, hours, and thank-you notes.
+3. The owner types or dictates a work story. Dictation appears as editable text; Gemini extracts crew names, tasks, hours, and thank-you notes.
 4. Each name must match a saved crew member. The owner reviews hours, skill weights, and the suggested split.
 5. BudPay reconciles the split in whole cents and warns about unusually high hours or shares.
 6. The owner presses **Approve & Send**. The backend recalculates the split, checks the saved roster and paid job, and submits one idempotent PayPal payout batch.
 7. BudPay polls PayPal for each item and records each recipient's result in Supabase.
 
 The AI does not calculate money or choose recipients. A roster selection uses its server-side email; otherwise, the owner can enter a verified Sandbox email directly.
+
+Voice typing uses the browser's speech recognition support and microphone permission. Browser support varies, and some browsers process speech through an online recognition service; typing remains available as a fallback.
 
 ## Stack
 
