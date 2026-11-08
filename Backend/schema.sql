@@ -78,8 +78,7 @@ CREATE TABLE IF NOT EXISTS job_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Crew members submit time claims. Only the boss may review them; the submitting
--- person is resolved from the authenticated Supabase email on the backend.
+-- Crew members submit time claims. Only the boss may review them
 CREATE TABLE IF NOT EXISTS work_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     person_id UUID NOT NULL REFERENCES people(id),
