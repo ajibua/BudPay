@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { ShieldCheck, Menu, X, Users, History, HelpCircle, Calculator, Sparkles } from 'lucide-react';
+import { Menu, X, Users, History, HelpCircle, Calculator, Sparkles } from 'lucide-react';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -77,17 +77,8 @@ export default function Navbar() {
             })}
           </nav>
 
-          {/* Sandbox Indicator & CTA */}
+          {/* Primary action and mobile navigation */}
           <div className="flex items-center space-x-2 sm:space-x-3">
-            <div
-              role="status"
-              aria-label="PayPal Sandbox environment active"
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
-              <span className="hidden xs:inline">PayPal</span> Sandbox
-            </div>
-
             <Link
               href="/split"
               className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"

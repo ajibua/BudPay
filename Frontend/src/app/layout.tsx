@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "BudPay | The Fair Pay Helper",
-  description: "PayPal moves the money. BudPay helps the boss decide what is fair. AI story interpretation, deterministic whole-cent math, and PayPal Sandbox batch payouts.",
+  description: "PayPal moves the money. BudPay helps small business owners decide what is fair with story-driven crew splits and precise whole-cent math.",
 };
 
   export default function RootLayout({
@@ -34,7 +33,6 @@ export const metadata: Metadata = {
           <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
             {children}
           </main>
-          <Footer />
         </body>
       </html>
     );

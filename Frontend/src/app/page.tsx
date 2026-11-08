@@ -1,9 +1,7 @@
-'use client';
-
 import Link from 'next/link';
+import Footer from '@/components/Footer';
 import {
   Sparkles,
-  ShieldCheck,
   CheckCircle2,
   ArrowRight,
   Calculator,
@@ -21,12 +19,13 @@ import {
 
 export default function LandingPage() {
   return (
+    <>
     <div className="space-y-24 py-10 sm:py-16">
       {/* Hero Section */}
       <section aria-labelledby="hero-heading" className="max-w-5xl mx-auto px-4 sm:px-8 text-center space-y-8">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-sm">
           <Sparkles className="w-4 h-4 text-blue-600" aria-hidden="true" />
-          <span>PayPal AI Hackathon 2026 &bull; Fair Pay Helper</span>
+          <span>Fair pay for small teams</span>
         </div>
 
         <h1
@@ -40,7 +39,7 @@ export default function LandingPage() {
         </h1>
 
         <p className="text-base sm:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed font-normal">
-          For solo service owners splitting lump-sum customer payments with their crew. Tell the story in plain words, adjust the boss slider, and let deterministic whole-cent math dispatch real PayPal Sandbox payouts.
+          For solo service owners splitting customer payments with their crew. Tell the story in plain words, adjust the boss&apos;s share, and let precise whole-cent math calculate what each person receives.
         </p>
 
         {/* Primary Action Buttons */}
@@ -50,7 +49,7 @@ export default function LandingPage() {
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-base shadow-lg shadow-blue-500/25 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
           >
             <Calculator className="w-5 h-5" aria-hidden="true" />
-            Start Fair Pay Split
+            Start Fair Sharing
             <ArrowRight className="w-5 h-5" aria-hidden="true" />
           </Link>
 
@@ -66,8 +65,8 @@ export default function LandingPage() {
         {/* Trust Badges */}
         <div className="pt-6 flex flex-wrap items-center justify-center gap-6 sm:gap-10 text-xs font-semibold text-slate-500">
           <div className="flex items-center gap-1.5 text-emerald-800">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
-            <span>PayPal Sandbox Verified</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+            <span>PayPal-powered payouts</span>
           </div>
           <div className="flex items-center gap-1.5 text-slate-700">
             <Lock className="w-4 h-4 text-blue-600" aria-hidden="true" />
@@ -206,7 +205,7 @@ export default function LandingPage() {
               <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition" />
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Run the 4-step interactive wizard from customer payment to live PayPal receipt.
+              Run the four-step wizard from customer payment to crew payout receipt.
             </p>
           </Link>
 
@@ -244,5 +243,7 @@ export default function LandingPage() {
         </div>
       </section>
     </div>
+    <Footer />
+    </>
   );
 }
