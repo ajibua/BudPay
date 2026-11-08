@@ -41,7 +41,7 @@ BudPay uses Supabase Auth for email/password and Google sign-in. The frontend se
 
 ### Local settings
 
-Copy `Frontend/env.example` to `Frontend/.env.local` and set the Supabase project URL, its public anon or publishable key, the local backend URL, and `NEXT_PUBLIC_AUTH_CALLBACK_URL` (normally `http://localhost:3000/auth/callback`). Set `SUPABASE_URL`, `SUPABASE_ANON_KEY` (or `SUPABASE_PUBLISHABLE_KEY`), and `BUDPAY_OWNER_EMAIL` in `Backend/.env` alongside the existing `SUPABASE_SERVICE_ROLE_KEY` and payment settings. `BUDPAY_OWNER_EMAIL` must be the same confirmed email used by the boss.
+Copy `Frontend/env.example` to `Frontend/.env.local` and set the Supabase project URL, its public anon or publishable key, and the local backend URL. The app builds the `/auth/callback` URL from the current site origin, so it uses localhost locally and the deployed domain after deployment. Set `SUPABASE_URL`, `SUPABASE_ANON_KEY` (or `SUPABASE_PUBLISHABLE_KEY`), and `BUDPAY_OWNER_EMAIL` in `Backend/.env` alongside the existing `SUPABASE_SERVICE_ROLE_KEY` and payment settings. `BUDPAY_OWNER_EMAIL` must be the same confirmed email used by the boss.
 
 ### Crew accounts and work-hour claims
 
@@ -49,7 +49,7 @@ Run the latest `Backend/schema.sql` in Supabase; it adds the crew sign-in email 
 
 ### Supabase and Google settings
 
-In Supabase Authentication settings, enable email signups and email confirmation. In the Google provider settings, enable Google and enter the OAuth client ID and secret from Google Cloud. Add each app callback URL to Supabase's allowed redirect URL list, and set the frontend `NEXT_PUBLIC_AUTH_CALLBACK_URL` to the matching production URL in Vercel:
+In Supabase Authentication settings, enable email signups and email confirmation. In the Google provider settings, enable Google and enter the OAuth client ID and secret from Google Cloud. Add each app callback URL to Supabase's allowed redirect URL list:
 
 - `http://localhost:3000/auth/callback`
 - `https://YOUR-FRONTEND-DOMAIN/auth/callback`
@@ -58,6 +58,6 @@ For the Google OAuth client, add the local and deployed frontend origins as auth
 
 ### Vercel settings
 
-On the frontend Vercel project, set `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_AUTH_CALLBACK_URL` (for example, `https://your-frontend-domain/auth/callback`), and either `NEXT_PUBLIC_SUPABASE_ANON_KEY` or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. On the backend Vercel project, set `SUPABASE_URL`, either `SUPABASE_ANON_KEY` or `SUPABASE_PUBLISHABLE_KEY`, and `BUDPAY_OWNER_EMAIL`, plus the existing backend secrets. Redeploy both projects after changing environment variables. The anon/publishable key is intended for browser use; never put the Supabase service-role key in any `NEXT_PUBLIC_*` variable or frontend project.
+On the frontend Vercel project, set `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and either `NEXT_PUBLIC_SUPABASE_ANON_KEY` or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. On the backend Vercel project, set `SUPABASE_URL`, either `SUPABASE_ANON_KEY` or `SUPABASE_PUBLISHABLE_KEY`, and `BUDPAY_OWNER_EMAIL`, plus the existing backend secrets. Redeploy both projects after changing environment variables. The anon/publishable key is intended for browser use; never put the Supabase service-role key in any `NEXT_PUBLIC_*` variable or frontend project.
 
 The backend is the RBAC authority. Hiding boss navigation in the frontend is only a usability aid; every protected API checks the verified Supabase user and their current boss or active-roster status.

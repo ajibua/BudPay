@@ -13,7 +13,7 @@ export function getSupabaseBrowserClient() {
 }
 
 export function getAuthCallbackUrl() {
-  return process.env.NEXT_PUBLIC_AUTH_CALLBACK_URL || `${window.location.origin}/auth/callback`;
+  return new URL('/auth/callback', window.location.origin).toString();
 }
 
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
