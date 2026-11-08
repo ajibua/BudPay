@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import { apiFetch } from '@/lib/supabase';
+import { ProtectedPage } from '@/components/AuthProvider';
 import {
   Sparkles,
   ShieldCheck,
@@ -64,6 +66,16 @@ interface CrewMemberItem {
   amountDollars?: string;
   sharePercentage?: string;
   points?: number;
+  learnedWeightSamples?: number;
+  learnedAverageSharePercent?: number;
+}
+
+interface CrewHabit {
+  key: string;
+  role: string;
+  jobCount: number;
+  averageWeight: number;
+  averageSharePercent: number;
 }
 
 interface DynamicPreset {
@@ -76,7 +88,11 @@ interface DynamicPreset {
   bossShare: number;
 }
 
-export default function SplitWizardPage() {
+function normalizeHabitKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function SplitWizardContent() {
   const wizardTopRef = useRef<HTMLDivElement>(null);
 
   // App Wizard Step: 1 (Money) -> 2 (Story) -> 3 (Slices & Sliders) -> 4 (Send & Receipt)
@@ -85,6 +101,8 @@ export default function SplitWizardPage() {
   // Dynamic presets and crew from backend
   const [presets, setPresets] = useState<DynamicPreset[]>([]);
   const [savedCrew, setSavedCrew] = useState<any[]>([]);
+  const [learnedHabits, setLearnedHabits] = useState<CrewHabit[]>([]);
+  const [completedLearningJobs, setCompletedLearningJobs] = useState<number>(0);
   const [loadingData, setLoadingData] = useState<boolean>(true);
 
   // Step 1: Finances
@@ -153,6 +171,19 @@ export default function SplitWizardPage() {
   const [isPollingReceipt, setIsPollingReceipt] = useState<boolean>(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+  const refreshLearnedHabits = async () => {
+    try {
+      const response = await apiFetch(`${API_URL}/api/learning/habits`);
+      const result = await response.json();
+      if (response.ok && result?.success && result.data) {
+        setLearnedHabits(Array.isArray(result.data.habits) ? result.data.habits : []);
+        setCompletedLearningJobs(Number(result.data.completedJobs) || 0);
+      }
+    } catch {
+      // Habit suggestions are optional; the usual math suggestion remains available.
+    }
+  };
 
   const stopVoiceInput = () => {
     speechRecognitionRef.current?.stop();
@@ -227,9 +258,10 @@ export default function SplitWizardPage() {
   useEffect(() => {
     let active = true;
     Promise.all([
-      fetch(`${API_URL}/api/presets`).then(r => r.json()).catch(() => ({ success: false })),
-      fetch(`${API_URL}/api/people`).then(r => r.json()).catch(() => ({ success: false }))
-    ]).then(([presetsData, crewData]) => {
+      apiFetch(`${API_URL}/api/presets`).then(r => r.json()).catch(() => ({ success: false })),
+      apiFetch(`${API_URL}/api/people`).then(r => r.json()).catch(() => ({ success: false })),
+      apiFetch(`${API_URL}/api/learning/habits`).then(r => r.json()).catch(() => ({ success: false }))
+    ]).then(([presetsData, crewData, habitData]) => {
       if (!active) return;
       if (presetsData?.success && Array.isArray(presetsData.data)) {
         setPresets(presetsData.data);
@@ -240,6 +272,10 @@ export default function SplitWizardPage() {
           const saved = crewData.data.find((person: any) => person.name?.toLowerCase() === member.name.toLowerCase());
           return saved ? { ...member, personId: saved.id, email: saved.email } : member;
         }));
+      }
+      if (habitData?.success && habitData.data) {
+        setLearnedHabits(Array.isArray(habitData.data.habits) ? habitData.data.habits : []);
+        setCompletedLearningJobs(Number(habitData.data.completedJobs) || 0);
       }
       setLoadingData(false);
     });
@@ -324,11 +360,12 @@ export default function SplitWizardPage() {
 
   // Step 1: Create a Sandbox order and open its customer approval page.
   const handleCreateCustomerOrder = async () => {
+    void refreshLearnedHabits();
     const approvalWindow = window.open('', '_blank');
     setCheckoutError(null);
     setIsCreatingOrder(true);
     try {
-      const res = await fetch(`${API_URL}/api/paypal/create-order`, {
+      const res = await apiFetch(`${API_URL}/api/paypal/create-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -364,7 +401,7 @@ export default function SplitWizardPage() {
     setIsConfirmingPayment(true);
     setCheckoutError(null);
     try {
-      const res = await fetch(`${API_URL}/api/paypal/capture-order/${encodeURIComponent(paypalOrderId)}`, {
+      const res = await apiFetch(`${API_URL}/api/paypal/capture-order/${encodeURIComponent(paypalOrderId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId })
@@ -390,7 +427,7 @@ export default function SplitWizardPage() {
     setMissingInfoAlert(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/ai/parse-story`, {
+      const res = await apiFetch(`${API_URL}/api/ai/parse-story`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ story: storyText })
@@ -419,13 +456,19 @@ export default function SplitWizardPage() {
         setCrewList(
           crewMembers.map((m: any, idx: number) => {
             const matchedSaved = savedCrew.find(s => s.name?.toLowerCase() === m.name?.toLowerCase());
+            const taskKey = normalizeHabitKey(String(m.job || ''));
+            const matchedHabit = learnedHabits
+              .filter(habit => taskKey && (taskKey === habit.key || taskKey.includes(habit.key) || habit.key.includes(taskKey)))
+              .sort((a, b) => b.key.length - a.key.length)[0];
             return {
               id: `crew_${Date.now()}_${idx}`,
               personId: matchedSaved?.id,
               name: m.name,
               job: m.job,
               hours: m.hours || 0,
-              jobWeight: m.suggestedJobWeight || 1.5,
+              jobWeight: matchedHabit?.averageWeight ?? m.suggestedJobWeight ?? 1.5,
+              learnedWeightSamples: matchedHabit?.jobCount,
+              learnedAverageSharePercent: matchedHabit?.averageSharePercent,
               email: matchedSaved?.email || '',
               summary: m.summary,
               thankYouNoteDraft: m.thankYouNoteDraft || `Thank you ${m.name} for your great work!`
@@ -462,7 +505,7 @@ export default function SplitWizardPage() {
     setPayoutError(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/pay/approve-and-send`, {
+      const res = await apiFetch(`${API_URL}/api/pay/approve-and-send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -498,7 +541,7 @@ export default function SplitWizardPage() {
     const interval = setInterval(async () => {
       attempts++;
       try {
-        const res = await fetch(`${API_URL}/api/paypal/payout/${batchId}`);
+        const res = await apiFetch(`${API_URL}/api/paypal/payout/${batchId}`);
         const data = await res.json();
         if (data && data.success && data.batch) {
           const status = data.batch.batch_header?.batch_status;
@@ -946,6 +989,18 @@ export default function SplitWizardPage() {
             </p>
           </div>
 
+          <aside aria-label="Learned crew split preferences" className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
+            <p className="font-bold">Learning your usual split</p>
+            <p className="mt-1 text-xs leading-relaxed text-indigo-900">
+              {completedLearningJobs < 3
+                ? `Complete ${3 - completedLearningJobs} more fully successful payout job${3 - completedLearningJobs === 1 ? '' : 's'} to start learning your preferences (${completedLearningJobs}/3 so far).`
+                : learnedHabits.length > 0
+                  ? `Using your past choices for ${learnedHabits.map(habit => habit.role).join(', ')}. Suggestions stay editable.`
+                  : 'Three payout jobs are complete. The helper learns a work type after seeing it in three successful jobs.'}
+              {' '}Only fully successful payout jobs count.
+            </p>
+          </aside>
+
           {/* Boss Slider Card */}
           <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-4">
             <div className="flex items-center justify-between">
@@ -1040,6 +1095,11 @@ export default function SplitWizardPage() {
                         <option value={2.0}>2.0 &times; (High Skill / Intricate Finishing)</option>
                         <option value={2.5}>2.5 &times; (Master Specialist)</option>
                       </select>
+                      {member.learnedWeightSamples && (
+                        <p className="mt-1 text-[10px] leading-relaxed text-indigo-700">
+                          Past jobs assigned this work about {member.learnedAverageSharePercent}% of the crew pile; this starting weight reflects your usual choice across {member.learnedWeightSamples} successful jobs.
+                        </p>
+                      )}
                     </div>
 
                     <div>
@@ -1268,4 +1328,8 @@ export default function SplitWizardPage() {
       )}
     </div>
   );
+}
+
+export default function SplitWizardPage() {
+  return <ProtectedPage allowedRoles={['boss']}><SplitWizardContent /></ProtectedPage>;
 }

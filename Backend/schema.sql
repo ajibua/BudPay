@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS people (
     name VARCHAR(100) NOT NULL,
     role VARCHAR(100) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
+    auth_email VARCHAR(255),
     default_job_weight NUMERIC(3, 1) NOT NULL DEFAULT 1.0,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -34,6 +35,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 ALTER TABLE people ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS auth_email VARCHAR(255);
+UPDATE people SET auth_email = email WHERE auth_email IS NULL;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paypal_capture_id VARCHAR(100);
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payment_captured BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paypal_sender_batch_id VARCHAR(100);
@@ -41,6 +44,7 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paypal_claimed_at TIMESTAMPTZ;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payout_request JSONB;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS review_snapshot JSONB;
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_paypal_sender_batch_id_unique ON jobs(paypal_sender_batch_id) WHERE paypal_sender_batch_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS people_auth_email_unique ON people(lower(auth_email)) WHERE auth_email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payouts (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -74,11 +78,40 @@ CREATE TABLE IF NOT EXISTS job_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Crew members submit time claims. Only the boss may review them; the submitting
+-- person is resolved from the authenticated Supabase email on the backend.
+CREATE TABLE IF NOT EXISTS work_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    person_id UUID NOT NULL REFERENCES people(id),
+    work_date DATE NOT NULL,
+    task VARCHAR(160) NOT NULL,
+    hours NUMERIC(5, 2) NOT NULL CHECK (hours > 0 AND hours <= 24),
+    details TEXT NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    review_note TEXT,
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMPTZ,
+    reviewed_by UUID,
+    CONSTRAINT valid_work_log_status CHECK (status IN ('pending', 'approved', 'rejected'))
+);
+
+CREATE INDEX IF NOT EXISTS work_logs_person_submitted_idx ON work_logs(person_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS work_logs_status_submitted_idx ON work_logs(status, submitted_at DESC);
+
 ALTER TABLE payouts ALTER COLUMN person_id DROP NOT NULL;
 
 CREATE INDEX IF NOT EXISTS payouts_job_id_idx ON payouts(job_id);
 CREATE INDEX IF NOT EXISTS job_events_job_id_idx ON job_events(job_id, created_at);
 
+-- App data is accessed through the role-checking backend with its service key.
+-- Browser users authenticate with Supabase Auth but never query these tables directly.
+ALTER TABLE public.people ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.job_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.work_logs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.people, public.jobs, public.payouts, public.job_events, public.work_logs FROM anon, authenticated;
+
 GRANT USAGE ON SCHEMA public TO service_role;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.people, public.jobs, public.payouts, public.job_events TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.people, public.jobs, public.payouts, public.job_events, public.work_logs TO service_role;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;

@@ -11,7 +11,8 @@ import { calculateFairPay, validatePaymentGuardrails } from './services/mathEngi
 import {
   createJob, updateJobStatus, updateJobPayment, updateJobFinancials, updateJobStory, claimJobForPayout, repairClaimedPayoutRequest,
   recordPayout, updatePayoutStatuses, getSavedPeople, findPeopleByIds, getJob,
-  addSavedPerson, updateSavedPerson, getAllJobs, isPersistentStoreConfigured
+  addSavedPerson, updateSavedPerson, deactivateSavedPerson, getAllJobs, getLearnedCrewHabits,
+  getCrewPersonByEmail, getWorkLogs, createWorkLog, reviewWorkLog, isPersistentStoreConfigured
 } from './services/db.js';
 
 const PAYPAL_API_BASE = process.env.PAYPAL_API_BASE || 'https://api-m.sandbox.paypal.com';
@@ -68,6 +69,148 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Supabase verifies the bearer token. The configured owner is the boss; an active
+// roster email is a crew account with access only to its own time claims.
+app.use('/api', async (req, res, next) => {
+  const publicRoute = req.method === 'GET' && ['/health', '/presets'].includes(req.path);
+  if (publicRoute) return next();
+
+  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '');
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+  const ownerEmail = process.env.BUDPAY_OWNER_EMAIL?.trim().toLowerCase();
+  if (!supabaseUrl || !anonKey || !ownerEmail) {
+    return res.status(503).json({
+      success: false,
+      error: 'Workspace authentication is not configured. Set SUPABASE_URL, a Supabase anon or publishable key, and BUDPAY_OWNER_EMAIL on the backend.'
+    });
+  }
+
+  const authorization = req.get('authorization') || '';
+  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) return res.status(401).json({ success: false, error: 'Sign in as the BudPay boss to continue.' });
+
+  try {
+    const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: anonKey, Authorization: `Bearer ${token}` }
+    });
+    if (!userResponse.ok) return res.status(401).json({ success: false, error: 'Your sign-in session is invalid or expired. Please sign in again.' });
+    const user = await userResponse.json();
+    if (!user.email_confirmed_at || typeof user.email !== 'string') {
+      return res.status(403).json({ success: false, error: 'Use a confirmed email account to access BudPay.' });
+    }
+    const email = user.email.trim().toLowerCase();
+    if (email === ownerEmail) {
+      res.locals.budpayUser = { id: user.id, email: user.email, role: 'boss', person: null };
+    } else {
+      const person = await getCrewPersonByEmail(email);
+      if (!person) {
+        return res.status(403).json({ success: false, error: 'This account is not assigned to this BudPay workspace.' });
+      }
+      res.locals.budpayUser = {
+        id: user.id,
+        email: user.email,
+        role: 'crew',
+        person: { id: person.id, name: person.name, role: person.role }
+      };
+    }
+
+    const userRole = res.locals.budpayUser.role;
+    const isAuthMe = req.method === 'GET' && req.path === '/auth/me';
+    const isCrewWorkLogRoute = req.path === '/crew/work-logs' && ['GET', 'POST'].includes(req.method);
+    if (userRole === 'crew' && !isAuthMe && !isCrewWorkLogRoute) {
+      return res.status(403).json({ success: false, error: 'Crew accounts can only submit and view their own work logs.' });
+    }
+    next();
+  } catch (error) {
+    console.error('Supabase auth verification failed:', error.message);
+    res.status(503).json({ success: false, error: 'Could not verify your sign-in with Supabase. Please try again.' });
+  }
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const { role, person, ...user } = res.locals.budpayUser;
+  res.json({ success: true, user, role, person });
+});
+
+function validateWorkLogInput({ workDate, task, hours, details = '' }) {
+  const parsedDate = typeof workDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(workDate)
+    ? new Date(`${workDate}T00:00:00.000Z`)
+    : null;
+  if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== workDate) {
+    return { error: 'Enter a valid work date.' };
+  }
+  if (workDate > new Date().toISOString().slice(0, 10)) return { error: 'Work date cannot be in the future.' };
+  if (typeof task !== 'string' || !task.trim() || task.trim().length > 160) {
+    return { error: 'Describe the task in 1 to 160 characters.' };
+  }
+  const numericHours = Number(hours);
+  if (!Number.isFinite(numericHours) || numericHours <= 0 || numericHours > 24 ||
+      Math.abs(numericHours * 100 - Math.round(numericHours * 100)) > 1e-7) {
+    return { error: 'Hours must be greater than 0, no more than 24, and use at most two decimal places.' };
+  }
+  if (typeof details !== 'string' || details.trim().length > 1000) {
+    return { error: 'Additional details must be 1000 characters or fewer.' };
+  }
+  return { value: { workDate, task: task.trim(), hours: numericHours, details: details.trim() } };
+}
+
+app.get('/api/crew/work-logs', async (req, res) => {
+  try {
+    if (!requireStorage(res)) return;
+    const personId = res.locals.budpayUser.role === 'crew' ? res.locals.budpayUser.person.id : null;
+    res.json({ success: true, data: await getWorkLogs({ personId }) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/crew/work-logs', async (req, res) => {
+  try {
+    if (!requireStorage(res)) return;
+    if (res.locals.budpayUser.role !== 'crew') {
+      return res.status(403).json({ success: false, error: 'Only a crew account can submit a work log.' });
+    }
+    const validation = validateWorkLogInput(req.body || {});
+    if (validation.error) return res.status(400).json({ success: false, error: validation.error });
+    const workLog = await createWorkLog({ personId: res.locals.budpayUser.person.id, ...validation.value });
+    res.status(201).json({ success: true, workLog });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/work-logs', async (req, res) => {
+  try {
+    if (!requireStorage(res)) return;
+    res.json({ success: true, data: await getWorkLogs() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.patch('/api/work-logs/:logId/review', async (req, res) => {
+  try {
+    if (!requireStorage(res)) return;
+    const { status, reviewNote = '' } = req.body || {};
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Review status must be approved or rejected.' });
+    }
+    if (typeof reviewNote !== 'string' || reviewNote.trim().length > 1000) {
+      return res.status(400).json({ success: false, error: 'Review note must be 1000 characters or fewer.' });
+    }
+    const workLog = await reviewWorkLog({
+      logId: req.params.logId,
+      status,
+      reviewNote: reviewNote.trim(),
+      reviewerId: res.locals.budpayUser.id
+    });
+    res.json({ success: true, workLog });
+  } catch (err) {
+    res.status(err.message.includes('not found or already reviewed') ? 404 : 500)
+      .json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/people', async (req, res) => {
   try {
     res.json({ success: true, data: await getSavedPeople() });
@@ -79,8 +222,8 @@ app.get('/api/people', async (req, res) => {
 app.post('/api/people', async (req, res) => {
   try {
     if (!requireStorage(res)) return;
-    const { name, role, email, defaultWeight = 1.0 } = req.body;
-    const validation = validatePersonInput({ name, role, email, defaultWeight });
+    const { name, role, email, authEmail, defaultWeight = 1.0 } = req.body;
+    const validation = validatePersonInput({ name, role, email, authEmail, defaultWeight });
     if (validation.error) return res.status(400).json({ success: false, error: validation.error });
     const person = await addSavedPerson({
       ...validation.value
@@ -104,12 +247,30 @@ app.patch('/api/people/:personId', async (req, res) => {
   }
 });
 
-function validatePersonInput({ name, role, email, defaultWeight = 1.0 }) {
+app.delete('/api/people/:personId', async (req, res) => {
+  try {
+    if (!requireStorage(res)) return;
+    await deactivateSavedPerson(req.params.personId);
+    res.json({ success: true });
+  } catch (err) {
+    const notFound = err.message.includes('not found or already inactive');
+    res.status(notFound ? 404 : 500).json({ success: false, error: err.message });
+  }
+});
+
+function validatePersonInput({ name, role, email, authEmail, defaultWeight = 1.0 }) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) {
     return { error: 'Crew member name is required and must be 100 characters or fewer.' };
   }
   if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.trim().length > 255) {
     return { error: 'A valid PayPal email of 255 characters or fewer is required.' };
+  }
+  const loginEmail = typeof authEmail === 'string' && authEmail.trim() ? authEmail.trim() : email.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail) || loginEmail.length > 255) {
+    return { error: 'A valid crew sign-in email of 255 characters or fewer is required.' };
+  }
+  if (loginEmail.toLowerCase() === process.env.BUDPAY_OWNER_EMAIL?.trim().toLowerCase()) {
+    return { error: 'Crew sign-in email must be different from the boss account email.' };
   }
   if (role !== undefined && (typeof role !== 'string' || role.trim().length > 100)) {
     return { error: 'Role must be 100 characters or fewer.' };
@@ -123,6 +284,7 @@ function validatePersonInput({ name, role, email, defaultWeight = 1.0 }) {
       name: name.trim(),
       role: (role || 'Crew Member').trim(),
       email: email.trim(),
+      authEmail: loginEmail.toLowerCase(),
       defaultWeight: weight
     }
   };
@@ -175,6 +337,14 @@ app.get('/api/jobs', async (req, res) => {
   try {
     const jobs = await getAllJobs();
     res.json({ success: true, data: jobs });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/learning/habits', async (req, res) => {
+  try {
+    res.json({ success: true, data: await getLearnedCrewHabits() });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

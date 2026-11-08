@@ -18,6 +18,7 @@ export const isPersistentStoreConfigured = Boolean(
   // ========================================================
   const inMemoryJobs = new Map();
   const inMemoryPayouts = new Map();
+  const inMemoryWorkLogs = new Map();
   const inMemoryEvents = [];
 
   const DEFAULT_PEOPLE = [
@@ -83,7 +84,27 @@ export const isPersistentStoreConfigured = Boolean(
       name: row.name,
       role: row.role,
       email: row.email,
+      authEmail: row.auth_email || row.email,
       defaultWeight: Number(row.default_job_weight || 1)
+    };
+  }
+
+  function mapWorkLog(row) {
+    if (!row) return null;
+    const person = Array.isArray(row.people) ? row.people[0] : row.people;
+    return {
+      id: row.id,
+      personId: row.person_id,
+      personName: person?.name || row.personName || '',
+      personRole: person?.role || row.personRole || '',
+      workDate: row.work_date,
+      task: row.task,
+      hours: Number(row.hours),
+      details: row.details || '',
+      status: row.status,
+      reviewNote: row.review_note || '',
+      submittedAt: row.submitted_at,
+      reviewedAt: row.reviewed_at || null
     };
   }
 
@@ -152,6 +173,10 @@ export const isPersistentStoreConfigured = Boolean(
   inMemoryJobs.set(id, memoryJob);
   await writeEvent(id, 'draft_created', { paypalOrderId });
   return mapJob(memoryJob);
+}
+
+function normalizeHabitRole(role) {
+  return String(role || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 export async function getJob(jobId) {
@@ -353,7 +378,107 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
         throw new Error(`Could not load crew roster from Supabase: ${e.message}`);
       }
     }
-    return DEFAULT_PEOPLE.map(mapPerson);
+    return DEFAULT_PEOPLE.filter(person => person.active !== false).map(mapPerson);
+  }
+
+  export async function getCrewPersonByEmail(email) {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) return null;
+    const people = await getSavedPeople();
+    return people.find(person => (person.authEmail || person.email).trim().toLowerCase() === normalizedEmail) || null;
+  }
+
+  export async function deactivateSavedPerson(personId) {
+    if (isPersistentStoreConfigured) {
+      const rows = await requestTable('people', {
+        method: 'PATCH',
+        query: `id=eq.${encodeURIComponent(personId)}&active=eq.true`,
+        body: { active: false }
+      });
+      if (!rows?.[0]) throw new Error('Crew member not found or already inactive.');
+      return mapPerson(rows[0]);
+    }
+    const person = DEFAULT_PEOPLE.find(item => item.id === personId && item.active !== false);
+    if (!person) throw new Error('Crew member not found or already inactive.');
+    person.active = false;
+    return mapPerson(person);
+  }
+
+  export async function getWorkLogs({ personId } = {}) {
+    if (isPersistentStoreConfigured) {
+      const filter = personId ? `&person_id=eq.${encodeURIComponent(personId)}` : '';
+      const rows = await requestTable('work_logs', {
+        query: `select=*,people(id,name,role)&order=submitted_at.desc${filter}`
+      });
+      return (rows || []).map(mapWorkLog);
+    }
+    return Array.from(inMemoryWorkLogs.values())
+      .filter(log => !personId || log.person_id === personId)
+      .sort((a, b) => b.submitted_at.localeCompare(a.submitted_at))
+      .map(mapWorkLog);
+  }
+
+  export async function createWorkLog({ personId, workDate, task, hours, details }) {
+    const id = crypto.randomUUID();
+    const submittedAt = new Date().toISOString();
+    if (isPersistentStoreConfigured) {
+      const rows = await requestTable('work_logs', {
+        method: 'POST',
+        body: {
+          id,
+          person_id: personId,
+          work_date: workDate,
+          task,
+          hours,
+          details,
+          status: 'pending'
+        }
+      });
+      const log = mapWorkLog(rows?.[0]);
+      if (!log) throw new Error('Supabase did not return the submitted work log.');
+      return log;
+    }
+
+    const person = await getSavedPeople().then(people => people.find(item => item.id === personId));
+    const row = {
+      id,
+      person_id: personId,
+      personName: person?.name || '',
+      personRole: person?.role || '',
+      work_date: workDate,
+      task,
+      hours,
+      details,
+      status: 'pending',
+      review_note: '',
+      submitted_at: submittedAt,
+      reviewed_at: null
+    };
+    inMemoryWorkLogs.set(id, row);
+    return mapWorkLog(row);
+  }
+
+  export async function reviewWorkLog({ logId, status, reviewNote, reviewerId }) {
+    const reviewedAt = new Date().toISOString();
+    if (isPersistentStoreConfigured) {
+      const rows = await requestTable('work_logs', {
+        method: 'PATCH',
+        query: `id=eq.${encodeURIComponent(logId)}&status=eq.pending&select=*,people(id,name,role)`,
+        body: {
+          status,
+          review_note: reviewNote,
+          reviewed_at: reviewedAt,
+          reviewed_by: reviewerId
+        }
+      });
+      if (!rows?.[0]) throw new Error('Work log not found or already reviewed.');
+      return mapWorkLog(rows[0]);
+    }
+
+    const row = inMemoryWorkLogs.get(logId);
+    if (!row || row.status !== 'pending') throw new Error('Work log not found or already reviewed.');
+    Object.assign(row, { status, review_note: reviewNote, reviewed_at: reviewedAt, reviewed_by: reviewerId });
+    return mapWorkLog(row);
   }
 
   export async function findPeopleByIds(ids) {
@@ -437,6 +562,75 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       }
     }
 
+    export async function getLearnedCrewHabits() {
+      let payoutRows;
+      if (isPersistentStoreConfigured) {
+        try {
+          payoutRows = await requestTable('payouts', {
+            query: 'select=job_id,role,weight,amount_cents,status&order=created_at.desc&limit=5000'
+          });
+        } catch (e) {
+          throw new Error(`Could not load payout history for habit suggestions: ${e.message}`);
+        }
+      } else {
+        payoutRows = Array.from(inMemoryPayouts.values()).flat();
+      }
+
+      const payoutsByJob = new Map();
+      for (const payout of payoutRows || []) {
+        if (!payout?.job_id) continue;
+        const rows = payoutsByJob.get(payout.job_id) || [];
+        rows.push(payout);
+        payoutsByJob.set(payout.job_id, rows);
+      }
+
+      const roleSamples = new Map();
+      let completedJobs = 0;
+      for (const rows of payoutsByJob.values()) {
+        if (!rows.length || rows.some(row => String(row.status).toLowerCase() !== 'success')) continue;
+        const crewTotalCents = rows.reduce((sum, row) => sum + Math.max(0, Number(row.amount_cents) || 0), 0);
+        if (crewTotalCents <= 0) continue;
+        completedJobs += 1;
+
+        const rowsByRole = new Map();
+        for (const row of rows) {
+          const key = normalizeHabitRole(row.role);
+          if (!key) continue;
+          const roleRows = rowsByRole.get(key) || [];
+          roleRows.push(row);
+          rowsByRole.set(key, roleRows);
+        }
+
+        for (const [key, roleRows] of rowsByRole) {
+          const current = roleSamples.get(key) || {
+            role: String(roleRows[0].role).trim(),
+            weights: [],
+            shares: []
+          };
+          const averageWeight = roleRows.reduce((sum, row) => sum + (Number(row.weight) || 1), 0) / roleRows.length;
+          const roleTotalCents = roleRows.reduce((sum, row) => sum + (Number(row.amount_cents) || 0), 0);
+          current.weights.push(averageWeight);
+          current.shares.push((roleTotalCents / crewTotalCents) * 100);
+          roleSamples.set(key, current);
+        }
+      }
+
+      const habits = Array.from(roleSamples, ([key, sample]) => {
+        const averageWeight = sample.weights.reduce((sum, weight) => sum + weight, 0) / sample.weights.length;
+        const roundedWeight = Math.min(2.5, Math.max(1.0, Math.round(averageWeight * 2) / 2));
+        const averageSharePercent = sample.shares.reduce((sum, share) => sum + share, 0) / sample.shares.length;
+        return {
+          key,
+          role: sample.role,
+          jobCount: sample.weights.length,
+          averageWeight: roundedWeight,
+          averageSharePercent: Number(averageSharePercent.toFixed(1))
+        };
+      }).filter(habit => completedJobs >= 3 && habit.jobCount >= 3);
+
+      return { completedJobs, requiredJobs: 3, habits };
+    }
+
     export async function updateJobStory(jobId, rawStory) {
       const job = await getJob(jobId);
       if (!job || job.status !== 'draft') throw new Error('Story can only be saved to a draft job.');
@@ -466,13 +660,13 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       return mapJob(mem || { ...job, rawStory });
     }
 
-    export async function addSavedPerson({ name, role, email, defaultWeight = 1.0 }) {
+    export async function addSavedPerson({ name, role, email, authEmail = email, defaultWeight = 1.0 }) {
       const id = crypto.randomUUID();
       if (isPersistentStoreConfigured) {
         try {
           const rows = await requestTable('people', {
             method: 'POST',
-            body: { id, name, role, email, default_job_weight: defaultWeight, active: true }
+            body: { id, name, role, email, auth_email: authEmail, default_job_weight: defaultWeight, active: true }
           });
           if (rows?.[0]) return mapPerson(rows[0]);
           throw new Error('Supabase did not return the saved crew member.');
@@ -480,18 +674,18 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
           throw new Error(`Could not save crew member in Supabase: ${e.message}`);
         }
       }
-      const person = { id, name, role, email, default_job_weight: defaultWeight };
+      const person = { id, name, role, email, auth_email: authEmail, default_job_weight: defaultWeight };
       DEFAULT_PEOPLE.push(person);
       return mapPerson(person);
     }
 
-    export async function updateSavedPerson(personId, { name, role, email, defaultWeight }) {
+    export async function updateSavedPerson(personId, { name, role, email, authEmail = email, defaultWeight }) {
       if (isPersistentStoreConfigured) {
         try {
           const rows = await requestTable('people', {
             method: 'PATCH',
             query: `id=eq.${encodeURIComponent(personId)}&active=eq.true`,
-            body: { name, role, email, default_job_weight: defaultWeight }
+            body: { name, role, email, auth_email: authEmail, default_job_weight: defaultWeight }
           });
           if (rows?.[0]) return mapPerson(rows[0]);
           throw new Error('Crew member not found or inactive.');
@@ -502,7 +696,7 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
 
       const person = DEFAULT_PEOPLE.find(item => item.id === personId);
       if (!person) throw new Error('Crew member not found.');
-      Object.assign(person, { name, role, email, default_job_weight: defaultWeight });
+      Object.assign(person, { name, role, email, auth_email: authEmail, default_job_weight: defaultWeight });
       return mapPerson(person);
     }
 

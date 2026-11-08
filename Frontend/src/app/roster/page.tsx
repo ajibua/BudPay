@@ -2,17 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Users, UserPlus, Mail, Award, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Pencil } from 'lucide-react';
+import { Users, UserPlus, Mail, Award, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Pencil, UserMinus } from 'lucide-react';
+import { apiFetch } from '@/lib/supabase';
+import { ProtectedPage } from '@/components/AuthProvider';
 
 interface SavedPerson {
   id: string;
   name: string;
   role: string;
   email: string;
+  authEmail: string;
   defaultWeight: number;
 }
 
-export default function RosterPage() {
+function RosterContent() {
   const [people, setPeople] = useState<SavedPerson[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,8 +26,10 @@ export default function RosterPage() {
   const [name, setName] = useState<string>('');
   const [role, setRole] = useState<string>('');
   const [email, setEmail] = useState<string>('');
+  const [authEmail, setAuthEmail] = useState<string>('');
   const [defaultWeight, setDefaultWeight] = useState<number>(1.5);
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
@@ -34,7 +39,7 @@ export default function RosterPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/people`);
+      const res = await apiFetch(`${API_URL}/api/people`);
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setPeople(json.data);
@@ -59,13 +64,14 @@ export default function RosterPage() {
     setSubmitting(true);
 
     try {
-      const res = await fetch(`${API_URL}/api/people${editingPersonId ? `/${encodeURIComponent(editingPersonId)}` : ''}`, {
+      const res = await apiFetch(`${API_URL}/api/people${editingPersonId ? `/${encodeURIComponent(editingPersonId)}` : ''}`, {
         method: editingPersonId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
           role: role.trim() || 'Crew Member',
           email: email.trim(),
+          authEmail: authEmail.trim(),
           defaultWeight: Number(defaultWeight) || 1.5
         })
       });
@@ -81,6 +87,7 @@ export default function RosterPage() {
       setName('');
       setRole('');
       setEmail('');
+      setAuthEmail('');
       setDefaultWeight(1.5);
       setEditingPersonId(null);
       setShowAddForm(false);
@@ -97,6 +104,7 @@ export default function RosterPage() {
     setName(person.name);
     setRole(person.role);
     setEmail(person.email);
+    setAuthEmail(person.authEmail || person.email);
     setDefaultWeight(person.defaultWeight);
     setFormError(null);
     setFormSuccess(null);
@@ -109,8 +117,26 @@ export default function RosterPage() {
     setName('');
     setRole('');
     setEmail('');
+    setAuthEmail('');
     setDefaultWeight(1.5);
     setFormError(null);
+  };
+
+  const deactivatePerson = async (person: SavedPerson) => {
+    if (!window.confirm(`Remove ${person.name} from the active crew? This will block their next sign-in.`)) return;
+    setDeactivatingId(person.id);
+    setError(null);
+    try {
+      const response = await apiFetch(`${API_URL}/api/people/${encodeURIComponent(person.id)}`, { method: 'DELETE' });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not remove this crew member.');
+      setFormSuccess(`${person.name} was removed from the active crew. Their previous work logs are retained.`);
+      await fetchPeople();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not remove this crew member.');
+    } finally {
+      setDeactivatingId(null);
+    }
   };
 
   return (
@@ -205,6 +231,21 @@ export default function RosterPage() {
                 placeholder="e.g. sb-nzegj53708550@personal.example.com"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div>
+              <label htmlFor="person-auth-email" className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
+                Crew sign-in email
+              </label>
+              <input
+                id="person-auth-email"
+                type="email"
+                value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)}
+                placeholder="Leave blank to use the PayPal email"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="mt-1.5 text-[11px] leading-4 text-slate-500">Use the email they will confirm in Supabase or Google. This can differ from their PayPal address.</p>
             </div>
 
             <div>
@@ -304,6 +345,16 @@ export default function RosterPage() {
                       <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                       Edit
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void deactivatePerson(person)}
+                      disabled={deactivatingId === person.id}
+                      aria-label={`Remove ${person.name} from active crew`}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 disabled:opacity-50"
+                    >
+                      <UserMinus className="h-3.5 w-3.5" aria-hidden="true" />
+                      {deactivatingId === person.id ? 'Removing…' : 'Remove'}
+                    </button>
                   </div>
                 </div>
 
@@ -316,6 +367,9 @@ export default function RosterPage() {
                   <Mail className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" aria-hidden="true" />
                   <span>{person.email}</span>
                 </div>
+                {person.authEmail && person.authEmail.toLowerCase() !== person.email.toLowerCase() && (
+                  <p className="text-[11px] text-slate-500">Crew login: <span className="font-medium text-slate-700">{person.authEmail}</span></p>
+                )}
               </div>
             ))}
           </div>
@@ -334,5 +388,9 @@ export default function RosterPage() {
       </div>
     </div>
   );
+}
+
+export default function RosterPage() {
+  return <ProtectedPage allowedRoles={['boss']}><RosterContent /></ProtectedPage>;
 }
 

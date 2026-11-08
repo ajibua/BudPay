@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { History, ShieldCheck, CheckCircle2, Clock, AlertCircle, RefreshCw, ArrowRight, ExternalLink } from 'lucide-react';
+import { apiFetch } from '@/lib/supabase';
+import { ProtectedPage } from '@/components/AuthProvider';
 
 interface JobRecord {
   id: string;
@@ -18,7 +20,7 @@ interface JobRecord {
   createdAt: string;
 }
 
-export default function HistoryPage() {
+function HistoryContent() {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export default function HistoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/jobs`);
+      const res = await apiFetch(`${API_URL}/api/jobs`);
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setJobs(json.data);
@@ -178,4 +180,8 @@ export default function HistoryPage() {
       )}
     </div>
   );
+}
+
+export default function HistoryPage() {
+  return <ProtectedPage allowedRoles={['boss']}><HistoryContent /></ProtectedPage>;
 }

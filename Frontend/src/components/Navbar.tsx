@@ -2,132 +2,94 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
-import { Menu, X, Users, History, HelpCircle, Calculator, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Menu, X } from 'lucide-react';
+import AuthControls from '@/components/AuthControls';
+import { useAuth } from '@/components/AuthProvider';
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { role } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navLinks = [
-    { href: '/split', label: 'Fair share', icon: Calculator },
-    { href: '/how-it-works', label: 'How It Works', icon: HelpCircle },
-    { href: '/roster', label: 'Crew details', icon: Users },
-    { href: '/history', label: 'Payout History', icon: History }
-  ];
+  useEffect(() => setMobileMenuOpen(false), [pathname]);
 
-  const isActive = (href: string) => pathname === href;
+  if (pathname === '/login' || pathname.startsWith('/auth/')) return null;
+
+  const navLinks = role === 'boss'
+    ? [
+        { href: '/split', label: 'Fair share' },
+        { href: '/roster', label: 'Crew' },
+        { href: '/hours', label: 'Hours' },
+        { href: '/history', label: 'History' },
+      ]
+    : role === 'crew'
+      ? [{ href: '/hours', label: 'My hours' }]
+      : [{ href: '/how-it-works', label: 'How it works' }];
+
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   return (
     <>
-      {/* Skip Link for Screen Readers / Keyboard Impaired Users */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:bg-blue-700 focus:text-white focus:rounded-xl focus:shadow-xl focus:ring-4 focus:ring-blue-400 font-bold text-sm"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-blue-700 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
       >
         Skip to main content
       </a>
 
-      <header
-        role="banner"
-        className="w-full border-b border-slate-200 bg-white/95 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-8 py-3.5"
-      >
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          {/* Logo & Brand */}
-          <Link
-            href="/"
-            aria-label="BudPay Home - The Fair Pay Helper"
-            className="flex items-center space-x-3 group focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600 rounded-xl p-1"
-          >
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-extrabold text-xl shadow-md shadow-blue-500/20 group-hover:scale-105 transition">
-              B
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-xl tracking-tight text-slate-900">BudPay</span>
-                <span className="hidden sm:inline text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  The Fair share helper
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 hidden sm:block">
-                PayPal moves the money. BudPay helps the boss decide what is fair.
-              </p>
-            </div>
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+          <Link href="/" aria-label="BudPay home" className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-black text-white">B</span>
+            <span className="text-lg font-extrabold tracking-tight text-slate-900">BudPay</span>
           </Link>
 
-          {/* Desktop Navigation Routes */}
-          <nav role="navigation" aria-label="Main menu" className="hidden md:flex items-center space-x-1">
-            {navLinks.map(link => {
-              const active = isActive(link.href);
-              const Icon = link.icon;
-              return (
+          <div className="flex items-center gap-2 md:gap-3">
+            <nav aria-label="Main navigation" className="hidden items-center gap-1 md:flex">
+              {navLinks.map(link => (
                 <Link
                   key={link.href}
                   href={link.href}
-                  aria-current={active ? 'page' : undefined}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600 ${active
-                    ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  aria-current={isActive(link.href) ? 'page' : undefined}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${isActive(link.href)
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                 >
-                  <Icon className={`w-3.5 h-3.5 ${active ? 'text-blue-600' : 'text-slate-400'}`} aria-hidden="true" />
                   {link.label}
                 </Link>
-              );
-            })}
-          </nav>
-
-          {/* Primary action and mobile navigation */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
-            <Link
-              href="/split"
-              className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
-            >
-              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-              Start sharing
-            </Link>
-
-            {/* Mobile Menu Button */}
+              ))}
+            </nav>
+            <AuthControls />
             <button
               type="button"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              onClick={() => setMobileMenuOpen(open => !open)}
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-navigation"
               aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 border border-slate-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 md:hidden"
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </button>
           </div>
         </div>
 
-        {/* Mobile Dropdown Menu */}
-        {mobileMenuOpen && (
-          <div
-            id="mobile-navigation"
-            className="md:hidden mt-3 pt-3 border-t border-slate-200 space-y-1"
-          >
-            {navLinks.map(link => {
-              const active = isActive(link.href);
-              const Icon = link.icon;
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  aria-current={active ? 'page' : undefined}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition ${active
-                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                    : 'text-slate-700 hover:bg-slate-100'
-                    }`}
-                >
-                  <Icon className={`w-4 h-4 ${active ? 'text-blue-600' : 'text-slate-400'}`} aria-hidden="true" />
-                  {link.label}
-                </Link>
-              );
-            })}
-          </div>
-        )}
+        <nav id="mobile-navigation" hidden={!mobileMenuOpen} aria-label="Mobile navigation" className="border-t border-slate-200 px-4 py-2 md:hidden">
+            {navLinks.map(link => (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={isActive(link.href) ? 'page' : undefined}
+                className={`block rounded-lg px-3 py-2.5 text-sm font-medium ${isActive(link.href)
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+        </nav>
       </header>
     </>
   );

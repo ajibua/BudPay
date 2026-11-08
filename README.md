@@ -9,7 +9,7 @@ BudPay helps a small business owner split a customer payment among crew members.
 1. Create a PayPal Sandbox order and complete customer approval.
 2. BudPay captures the approved order and stores the job in Supabase.
 3. The owner types or dictates a work story. Dictation appears as editable text; Gemini extracts crew names, tasks, hours, and thank-you notes.
-4. Each name must match a saved crew member. The owner reviews hours, skill weights, and the suggested split.
+4. Each name must match a saved crew member. The owner reviews hours, skill weights, and the suggested split. After a work type appears in three fully successful payout jobs, its starting skill weight reflects the boss's historical choices.
 5. BudPay reconciles the split in whole cents and warns about unusually high hours or shares.
 6. The owner presses **Approve & Send**. The backend recalculates the split, checks the saved roster and paid job, and submits one idempotent PayPal payout batch.
 7. BudPay polls PayPal for each item and records each recipient's result in Supabase.
@@ -150,5 +150,5 @@ Vercel environment variable changes take effect after redeployment. Keep `SUPABA
 - Run complete Sandbox customer-to-crew payout scenarios and confirm each recipient's account and receipt status.
 - Deploy the backend and frontend with their secrets configured, record the demo, and complete hackathon submission requirements.
 
-The app is a Sandbox hackathon prototype. It does not implement production user authentication or crew logins.
+The app is a Sandbox hackathon prototype. Supabase Auth identifies the boss and active crew members. The boss has full workspace access; crew accounts can submit and view only their own work-hour claims. The boss reviews all claims. This RBAC setup does not automatically include approved crew hours in payout calculations.
 
