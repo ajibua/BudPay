@@ -113,6 +113,3 @@ REVOKE ALL ON TABLE public.people, public.jobs, public.payouts, public.job_event
 GRANT USAGE ON SCHEMA public TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.people, public.jobs, public.payouts, public.job_events, public.work_logs TO service_role;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
-
--- App data is accessed through the role-checking backend with its service key.
--- Browser users authenticate with Supabase Auth but never query these tables directly.
