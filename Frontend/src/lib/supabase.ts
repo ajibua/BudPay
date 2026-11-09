@@ -16,6 +16,10 @@ export function getAuthCallbackUrl() {
   return new URL('/auth/callback', window.location.origin).toString();
 }
 
+export function getPasswordResetUrl() {
+  return new URL('/reset-password', window.location.origin).toString();
+}
+
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const client = getSupabaseBrowserClient();
   const { data } = client ? await client.auth.getSession() : { data: { session: null } };

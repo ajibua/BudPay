@@ -58,6 +58,15 @@ export const isPersistentStoreConfigured = Boolean(
     return {
       id: row.id,
       title: row.title,
+      customerName: row.customer_name || '',
+      customerEmail: row.customer_email || '',
+      customerNotes: row.customer_notes || '',
+      serviceId: row.service_id || '',
+      agencyId: row.agency_id || '',
+      agencyName: row.agency_name || '',
+      customerStatus: row.customer_status === 'not_applicable' && row.service_id && row.payment_captured
+        ? 'paid'
+        : (row.customer_status || (row.service_id ? 'awaiting_payment' : 'not_applicable')),
       rawStory: row.raw_story || '',
       totalCustomerPaymentCents: Number(row.total_customer_payment_cents),
       materialCostsCents: Number(row.material_costs_cents),
@@ -78,9 +87,24 @@ export const isPersistentStoreConfigured = Boolean(
     };
   }
 
+  function mapMarketplaceService(row) {
+    return {
+      id: row.id,
+      agencyId: row.agency_id,
+      agencyName: row.agency_name,
+      category: row.category,
+      title: row.title,
+      description: row.description,
+      priceCents: Number(row.price_cents),
+      turnaround: row.turnaround,
+      initials: row.initials || 'BP'
+    };
+  }
+
   function mapPerson(row) {
     return {
       id: row.id,
+      agencyId: row.agency_id || '',
       name: row.name,
       role: row.role,
       email: row.email,
@@ -126,9 +150,10 @@ export const isPersistentStoreConfigured = Boolean(
   export async function createJob({
     title = 'Custom Job', rawStory = '', totalCustomerPaymentCents,
     materialCostsCents = 0, bossShareCents = 0, crewPileCents,
-    paypalOrderId
+    paypalOrderId, customerName = '', customerEmail = '', customerNotes = '',
+    serviceId = '', agencyId = '', agencyName = '', id: requestedId, customerStatus = 'not_applicable'
   }) {
-    const id = crypto.randomUUID();
+    const id = requestedId || crypto.randomUUID();
   const calculatedCrewPile = crewPileCents !== undefined
           ? crewPileCents
           : (totalCustomerPaymentCents - materialCostsCents - bossShareCents);
@@ -138,6 +163,13 @@ export const isPersistentStoreConfigured = Boolean(
             method: 'POST',
             body: {
               id, title, raw_story: rawStory,
+              customer_name: customerName,
+              customer_email: customerEmail,
+              customer_notes: customerNotes,
+              service_id: serviceId || null,
+              agency_id: agencyId || null,
+              agency_name: agencyName,
+              customer_status: customerStatus,
               total_customer_payment_cents: totalCustomerPaymentCents,
               material_costs_cents: materialCostsCents,
               boss_share_cents: bossShareCents,
@@ -159,6 +191,13 @@ export const isPersistentStoreConfigured = Boolean(
   const memoryJob = {
     id,
     title,
+    customer_name: customerName,
+    customer_email: customerEmail,
+    customer_notes: customerNotes,
+    service_id: serviceId || null,
+    agency_id: agencyId || null,
+    agency_name: agencyName,
+    customer_status: customerStatus,
     raw_story: rawStory,
     total_customer_payment_cents: totalCustomerPaymentCents,
     material_costs_cents: materialCostsCents,
@@ -179,11 +218,12 @@ function normalizeHabitRole(role) {
   return String(role || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-export async function getJob(jobId) {
+export async function getJob(jobId, agencyId = null) {
   if (!jobId) return null;
   if (isPersistentStoreConfigured) {
     try {
-      const rows = await requestTable('jobs', { query: `id=eq.${encodeURIComponent(jobId)}&select=*` });
+      const agencyFilter = agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : '';
+      const rows = await requestTable('jobs', { query: `id=eq.${encodeURIComponent(jobId)}${agencyFilter}&select=*` });
       if (rows?.[0]) return mapJob(rows[0]);
     } catch (e) {
       throw new Error(`Could not load job from Supabase: ${e.message}`);
@@ -194,12 +234,17 @@ export async function getJob(jobId) {
 }
 
 export async function updateJobPayment(jobId, { paypalOrderId, paypalCaptureId }) {
+    const existingJob = await getJob(jobId);
     if (isPersistentStoreConfigured) {
       try {
         const rows = await requestTable('jobs', {
           method: 'PATCH',
           query: `id=eq.${encodeURIComponent(jobId)}&paypal_order_id=eq.${encodeURIComponent(paypalOrderId)}&payment_captured=eq.false`,
-          body: { payment_captured: true, paypal_capture_id: paypalCaptureId }
+          body: {
+            payment_captured: true,
+            paypal_capture_id: paypalCaptureId,
+            ...(existingJob?.serviceId ? { customer_status: 'paid' } : {})
+          }
         });
         const job = mapJob(rows?.[0]);
         if (job) {
@@ -216,12 +261,56 @@ export async function updateJobPayment(jobId, { paypalOrderId, paypalCaptureId }
     if (!job) throw new Error(`Job not found: ${jobId}`);
     job.payment_captured = true;
     job.paypal_capture_id = paypalCaptureId;
+    if (job.service_id) job.customer_status = 'paid';
     await writeEvent(jobId, 'customer_payment_captured', { paypalOrderId, paypalCaptureId });
     return mapJob(job);
   }
 
-  export async function updateJobStatus(jobId, newStatus, metadata = {}) {
-    const job = await getJob(jobId);
+export async function updateMarketplaceCustomerStatus(jobId, newStatus, agencyId = null) {
+  const job = await getJob(jobId, agencyId);
+  if (!job?.serviceId || !job.paymentCaptured) throw new Error('Paid marketplace booking not found.');
+  const transitions = { paid: ['in_progress'], in_progress: ['completed'], completed: [] };
+  if (!(transitions[job.customerStatus] || []).includes(newStatus)) {
+    throw new Error(`Booking cannot move from ${job.customerStatus} to ${newStatus}.`);
+  }
+
+  if (isPersistentStoreConfigured) {
+    try {
+      const rows = await requestTable('jobs', {
+        method: 'PATCH',
+        query: `id=eq.${encodeURIComponent(jobId)}${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}&service_id=not.is.null&payment_captured=eq.true&customer_status=eq.${encodeURIComponent(job.customerStatus)}&select=*`,
+        body: { customer_status: newStatus }
+      });
+      if (!rows?.[0]) throw new Error('Booking status changed elsewhere. Refresh and try again.');
+      await writeEvent(jobId, 'customer_status_updated', { from: job.customerStatus, to: newStatus });
+      return mapJob(rows[0]);
+    } catch (e) {
+      throw new Error(`Could not update marketplace booking status: ${e.message}`);
+    }
+  }
+
+  const memoryJob = inMemoryJobs.get(jobId);
+  memoryJob.customer_status = newStatus;
+  await writeEvent(jobId, 'customer_status_updated', { from: job.customerStatus, to: newStatus });
+  return mapJob(memoryJob);
+}
+
+export async function findMarketplaceBooking(jobId, customerEmail) {
+  const job = await getJob(jobId);
+  if (!job?.serviceId || job.customerEmail.toLowerCase() !== customerEmail.toLowerCase()) return null;
+  return {
+    id: job.id,
+    title: job.title,
+    agencyName: job.agencyName,
+    totalCustomerPaymentCents: job.totalCustomerPaymentCents,
+    customerStatus: job.paymentCaptured ? job.customerStatus : 'awaiting_payment',
+    paymentCaptured: job.paymentCaptured,
+    createdAt: job.createdAt
+  };
+}
+
+  export async function updateJobStatus(jobId, newStatus, metadata = {}, agencyId = null) {
+    const job = await getJob(jobId, agencyId);
     if (!job) throw new Error(`Job not found: ${jobId}`);
     const validTransitions = {
       draft: ['reviewed'], reviewed: ['approved', 'draft'],
@@ -242,7 +331,7 @@ export async function updateJobPayment(jobId, { paypalOrderId, paypalCaptureId }
       try {
         const rows = await requestTable('jobs', {
           method: 'PATCH',
-          query: `id=eq.${encodeURIComponent(jobId)}&status=eq.${encodeURIComponent(job.status)}`,
+          query: `id=eq.${encodeURIComponent(jobId)}${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}&status=eq.${encodeURIComponent(job.status)}`,
           body: patch
         });
         if (rows?.[0]) {
@@ -263,12 +352,12 @@ export async function updateJobPayment(jobId, { paypalOrderId, paypalCaptureId }
     return mapJob(mem || { ...job, ...patch });
   }
 
-  export async function claimJobForPayout(jobId, senderBatchId, payoutRequest) {
+  export async function claimJobForPayout(jobId, senderBatchId, payoutRequest, agencyId = null) {
     if (isPersistentStoreConfigured) {
       try {
         const rows = await requestTable('jobs', {
           method: 'PATCH',
-          query: `id=eq.${encodeURIComponent(jobId)}&status=eq.approved&payment_captured=eq.true&paypal_sender_batch_id=is.null`,
+          query: `id=eq.${encodeURIComponent(jobId)}${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}&status=eq.approved&payment_captured=eq.true&paypal_sender_batch_id=is.null`,
           body: { paypal_sender_batch_id: senderBatchId, paypal_claimed_at: new Date().toISOString(), payout_request: payoutRequest }
         });
         if (rows?.[0]) {
@@ -299,8 +388,8 @@ export async function updateJobPayment(jobId, { paypalOrderId, paypalCaptureId }
     throw new Error(`Job not found: ${jobId}`);
   }
 
-export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutRequest) {
-  const job = await getJob(jobId);
+export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutRequest, agencyId = null) {
+  const job = await getJob(jobId, agencyId);
   if (!job || job.status !== 'approved' || !job.paymentCaptured || job.paypalSenderBatchId !== senderBatchId) {
     throw new Error('The claimed payout cannot be repaired because the job state changed.');
   }
@@ -316,7 +405,7 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     try {
       const rows = await requestTable('jobs', {
         method: 'PATCH',
-        query: `id=eq.${encodeURIComponent(jobId)}&status=eq.approved&payment_captured=eq.true&paypal_sender_batch_id=eq.${encodeURIComponent(senderBatchId)}`,
+        query: `id=eq.${encodeURIComponent(jobId)}${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}&status=eq.approved&payment_captured=eq.true&paypal_sender_batch_id=eq.${encodeURIComponent(senderBatchId)}`,
         body: { payout_request: payoutRequest }
       });
       if (rows?.[0]) {
@@ -338,9 +427,10 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
   return mapJob(memoryJob);
 }
 
-  export async function recordPayout({ jobId, batchId, allocations }) {
+  export async function recordPayout({ jobId, batchId, allocations, agencyId = null }) {
     const rows = allocations.map(alloc => ({
       job_id: jobId,
+      agency_id: agencyId,
       person_id: alloc.personId || null,
       recipient_email: alloc.email,
       role: alloc.role || alloc.job,
@@ -369,10 +459,11 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     await writeEvent(jobId, 'payout_batch_submitted', { batchId, recipients: rows.length });
   }
 
-  export async function getSavedPeople() {
+  export async function getSavedPeople(agencyId = null) {
     if (isPersistentStoreConfigured) {
       try {
-        const rows = await requestTable('people', { query: 'select=*&active=eq.true&order=name.asc' });
+        const agencyFilter = agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : '';
+        const rows = await requestTable('people', { query: `select=*&active=eq.true&order=name.asc${agencyFilter}` });
         return (rows || []).map(mapPerson);
       } catch (e) {
         throw new Error(`Could not load crew roster from Supabase: ${e.message}`);
@@ -381,18 +472,18 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     return DEFAULT_PEOPLE.filter(person => person.active !== false).map(mapPerson);
   }
 
-  export async function getCrewPersonByEmail(email) {
+  export async function getCrewPersonByEmail(email, agencyId = null) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail) return null;
-    const people = await getSavedPeople();
+    const people = await getSavedPeople(agencyId);
     return people.find(person => (person.authEmail || person.email).trim().toLowerCase() === normalizedEmail) || null;
   }
 
-  export async function deactivateSavedPerson(personId) {
+  export async function deactivateSavedPerson(personId, agencyId = null) {
     if (isPersistentStoreConfigured) {
       const rows = await requestTable('people', {
         method: 'PATCH',
-        query: `id=eq.${encodeURIComponent(personId)}&active=eq.true`,
+        query: `id=eq.${encodeURIComponent(personId)}&active=eq.true${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}`,
         body: { active: false }
       });
       if (!rows?.[0]) throw new Error('Crew member not found or already inactive.');
@@ -404,11 +495,11 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     return mapPerson(person);
   }
 
-  export async function getWorkLogs({ personId } = {}) {
+  export async function getWorkLogs({ personId, agencyId } = {}) {
     if (isPersistentStoreConfigured) {
-      const filter = personId ? `&person_id=eq.${encodeURIComponent(personId)}` : '';
+      const filter = `${personId ? `&person_id=eq.${encodeURIComponent(personId)}` : ''}${agencyId ? `&people.agency_id=eq.${encodeURIComponent(agencyId)}` : ''}`;
       const rows = await requestTable('work_logs', {
-        query: `select=*,people(id,name,role)&order=submitted_at.desc${filter}`
+        query: `select=*,people${agencyId ? '!inner' : ''}(id,name,role)&order=submitted_at.desc${filter}`
       });
       return (rows || []).map(mapWorkLog);
     }
@@ -458,9 +549,15 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     return mapWorkLog(row);
   }
 
-  export async function reviewWorkLog({ logId, status, reviewNote, reviewerId }) {
+  export async function reviewWorkLog({ logId, status, reviewNote, reviewerId, agencyId = null }) {
     const reviewedAt = new Date().toISOString();
     if (isPersistentStoreConfigured) {
+      if (agencyId) {
+        const ownedRows = await requestTable('work_logs', {
+          query: `id=eq.${encodeURIComponent(logId)}&people.agency_id=eq.${encodeURIComponent(agencyId)}&select=id,people!inner(agency_id)`
+        });
+        if (!ownedRows?.[0]) throw new Error('Work log not found or already reviewed.');
+      }
       const rows = await requestTable('work_logs', {
         method: 'PATCH',
         query: `id=eq.${encodeURIComponent(logId)}&status=eq.pending&select=*,people(id,name,role)`,
@@ -481,12 +578,12 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     return mapWorkLog(row);
   }
 
-  export async function findPeopleByIds(ids) {
+  export async function findPeopleByIds(ids, agencyId = null) {
     if (!Array.isArray(ids) || ids.length === 0) return [];
     if (isPersistentStoreConfigured) {
       try {
         const list = ids.map(id => `"${String(id).replaceAll('"', '')}"`).join(',');
-        const rows = await requestTable('people', { query: `select=*&active=eq.true&id=in.(${encodeURIComponent(list)})` });
+        const rows = await requestTable('people', { query: `select=*&active=eq.true&id=in.(${encodeURIComponent(list)})${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}` });
         return (rows || []).map(mapPerson);
       } catch (e) {
         throw new Error(`Could not verify crew roster in Supabase: ${e.message}`);
@@ -495,9 +592,9 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     return DEFAULT_PEOPLE.filter(p => ids.includes(p.id) || ids.includes(p.name)).map(mapPerson);
   }
 
-  export async function updateJobFinancials(jobId, bossShareCents) {
+  export async function updateJobFinancials(jobId, bossShareCents, agencyId = null) {
     if (!Number.isSafeInteger(bossShareCents) || bossShareCents < 0 || bossShareCents > 2147483647) throw new Error("Boss's share must be whole cents within the supported storage range.");
-    const job = await getJob(jobId);
+    const job = await getJob(jobId, agencyId);
     if (!job || job.status !== 'draft') throw new Error('Only a draft job can have its share changed.');
     const crewPileCents = job.totalCustomerPaymentCents - job.materialCostsCents - bossShareCents;
     if (crewPileCents < 0) throw new Error("Boss's share and costs cannot exceed the customer payment.");
@@ -506,7 +603,7 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       try {
         const rows = await requestTable('jobs', {
           method: 'PATCH',
-          query: `id=eq.${encodeURIComponent(jobId)}&status=eq.draft`,
+          query: `id=eq.${encodeURIComponent(jobId)}${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}&status=eq.draft`,
           body: { boss_share_cents: bossShareCents, crew_pile_cents: crewPileCents }
         });
         if (rows?.[0]) {
@@ -528,7 +625,7 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     return mapJob(mem || { ...job, bossShareCents, crewPileCents });
   }
 
-  export async function updatePayoutStatuses(batchId, items) {
+  export async function updatePayoutStatuses(batchId, items, agencyId = null) {
     for (const item of items || []) {
       const email = item.payout_item?.receiver;
       if (!email) continue;
@@ -540,7 +637,7 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
 
         if (isPersistentStoreConfigured) {
           try {
-            const query = `paypal_payout_batch_id=eq.${encodeURIComponent(batchId)}&recipient_email=eq.${encodeURIComponent(email)}`;
+            const query = `paypal_payout_batch_id=eq.${encodeURIComponent(batchId)}&recipient_email=eq.${encodeURIComponent(email)}${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}`;
             const existing = await requestTable('payouts', { query: `${query}&select=job_id,status` });
             await requestTable('payouts', {
               method: 'PATCH', query,
@@ -562,12 +659,12 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       }
     }
 
-    export async function getLearnedCrewHabits() {
+  export async function getLearnedCrewHabits(agencyId = null) {
       let payoutRows;
       if (isPersistentStoreConfigured) {
         try {
           payoutRows = await requestTable('payouts', {
-            query: 'select=job_id,role,weight,amount_cents,status&order=created_at.desc&limit=5000'
+            query: `select=job_id,role,weight,amount_cents,status&order=created_at.desc&limit=5000${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}`
           });
         } catch (e) {
           throw new Error(`Could not load payout history for habit suggestions: ${e.message}`);
@@ -631,15 +728,15 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       return { completedJobs, requiredJobs: 3, habits };
     }
 
-    export async function updateJobStory(jobId, rawStory) {
-      const job = await getJob(jobId);
+    export async function updateJobStory(jobId, rawStory, agencyId = null) {
+      const job = await getJob(jobId, agencyId);
       if (!job || job.status !== 'draft') throw new Error('Story can only be saved to a draft job.');
 
       if (isPersistentStoreConfigured) {
         try {
           const rows = await requestTable('jobs', {
             method: 'PATCH',
-            query: `id=eq.${encodeURIComponent(jobId)}&status=eq.draft`,
+            query: `id=eq.${encodeURIComponent(jobId)}${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}&status=eq.draft`,
             body: { raw_story: rawStory }
           });
           if (rows?.[0]) {
@@ -660,13 +757,13 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       return mapJob(mem || { ...job, rawStory });
     }
 
-    export async function addSavedPerson({ name, role, email, authEmail = email, defaultWeight = 1.0 }) {
+    export async function addSavedPerson({ name, role, email, authEmail = email, defaultWeight = 1.0, agencyId = null }) {
       const id = crypto.randomUUID();
       if (isPersistentStoreConfigured) {
         try {
           const rows = await requestTable('people', {
             method: 'POST',
-            body: { id, name, role, email, auth_email: authEmail, default_job_weight: defaultWeight, active: true }
+            body: { id, agency_id: agencyId, name, role, email, auth_email: authEmail, default_job_weight: defaultWeight, active: true }
           });
           if (rows?.[0]) return mapPerson(rows[0]);
           throw new Error('Supabase did not return the saved crew member.');
@@ -674,17 +771,17 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
           throw new Error(`Could not save crew member in Supabase: ${e.message}`);
         }
       }
-      const person = { id, name, role, email, auth_email: authEmail, default_job_weight: defaultWeight };
+      const person = { id, agency_id: agencyId, name, role, email, auth_email: authEmail, default_job_weight: defaultWeight };
       DEFAULT_PEOPLE.push(person);
       return mapPerson(person);
     }
 
-    export async function updateSavedPerson(personId, { name, role, email, authEmail = email, defaultWeight }) {
+    export async function updateSavedPerson(personId, { name, role, email, authEmail = email, defaultWeight }, agencyId = null) {
       if (isPersistentStoreConfigured) {
         try {
           const rows = await requestTable('people', {
             method: 'PATCH',
-            query: `id=eq.${encodeURIComponent(personId)}&active=eq.true`,
+            query: `id=eq.${encodeURIComponent(personId)}&active=eq.true${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}`,
             body: { name, role, email, auth_email: authEmail, default_job_weight: defaultWeight }
           });
           if (rows?.[0]) return mapPerson(rows[0]);
@@ -700,14 +797,247 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
       return mapPerson(person);
     }
 
-    export async function getAllJobs() {
+    export async function getAllJobs(agencyId = null) {
       if (isPersistentStoreConfigured) {
         try {
-          const rows = await requestTable('jobs', { query: 'select=*&order=created_at.desc&limit=50' });
+          const rows = await requestTable('jobs', { query: `select=*&order=created_at.desc&limit=50${agencyId ? `&agency_id=eq.${encodeURIComponent(agencyId)}` : ''}` });
           return (rows || []).map(mapJob);
         } catch (e) {
           throw new Error(`Could not load jobs from Supabase: ${e.message}`);
         }
       }
-      return Array.from(inMemoryJobs.values()).map(mapJob).reverse();
+      return Array.from(inMemoryJobs.values()).filter(job => !agencyId || job.agency_id === agencyId).map(mapJob).reverse();
+    }
+
+    export async function getMarketplaceServices(fallbackServices = []) {
+      if (!isPersistentStoreConfigured) return fallbackServices;
+      try {
+        const rows = await requestTable('marketplace_services', {
+          query: 'select=*&active=eq.true&order=created_at.desc'
+        });
+        return (rows || []).map(mapMarketplaceService);
+      } catch (e) {
+        throw new Error(`Could not load marketplace services from Supabase: ${e.message}`);
+      }
+    }
+
+    export async function getMarketplaceService(serviceId, fallbackServices = []) {
+      if (!isPersistentStoreConfigured) return fallbackServices.find(service => service.id === serviceId) || null;
+      try {
+        const rows = await requestTable('marketplace_services', {
+          query: `id=eq.${encodeURIComponent(serviceId)}&active=eq.true&select=*`
+        });
+        return rows?.[0] ? mapMarketplaceService(rows[0]) : null;
+      } catch (e) {
+        throw new Error(`Could not load marketplace service from Supabase: ${e.message}`);
+      }
+    }
+
+  function mapAgency(row) {
+    return row ? { id: row.id, name: row.name, slug: row.slug, ownerEmail: row.owner_email || '' } : null;
+  }
+
+  export async function getAgencyById(agencyId) {
+    if (!agencyId) return null;
+    if (!isPersistentStoreConfigured) return agencyId === 'tundestudio' ? { id: 'tundestudio', name: process.env.BUDPAY_AGENCY_NAME?.trim() || "Tunde's Tailoring Studio", slug: 'tunde-studio', ownerEmail: '' } : null;
+    const rows = await requestTable('agencies', { query: `id=eq.${encodeURIComponent(agencyId)}&select=*` });
+    return mapAgency(rows?.[0]);
+  }
+
+  export async function getAgencyForUser(userId, email) {
+    if (!isPersistentStoreConfigured) return null;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const userRows = userId
+      ? await requestTable('agencies', { query: `owner_user_id=eq.${encodeURIComponent(userId)}&select=*` })
+      : [];
+    const rows = userRows?.length || !normalizedEmail ? userRows : await requestTable('agencies', { query: `owner_email=eq.${encodeURIComponent(normalizedEmail)}&select=*` });
+    return mapAgency(rows?.[0]);
+  }
+
+  export async function getAgencyJobByPaypalOrder(orderId, agencyId) {
+    if (!isPersistentStoreConfigured) return null;
+    const rows = await requestTable('jobs', { query: `paypal_order_id=eq.${encodeURIComponent(orderId)}&agency_id=eq.${encodeURIComponent(agencyId)}&select=id` });
+    return rows?.[0] || null;
+  }
+
+  export async function hasAgencyPayoutBatch(batchId, agencyId) {
+    if (!isPersistentStoreConfigured) return false;
+    const rows = await requestTable('jobs', { query: `paypal_payout_batch_id=eq.${encodeURIComponent(batchId)}&agency_id=eq.${encodeURIComponent(agencyId)}&select=id&limit=1` });
+    return Boolean(rows?.length);
+  }
+
+  export async function claimLegacyAgency(userId, email) {
+    if (!isPersistentStoreConfigured) throw new Error('Persistent Supabase storage must be configured before agency access is enabled.');
+    const rows = await requestTable('agencies', {
+      method: 'PATCH',
+      query: 'id=eq.tundestudio&owner_user_id=is.null&owner_email=is.null&select=*',
+      body: { owner_user_id: userId, owner_email: String(email).trim().toLowerCase() }
+    });
+    if (rows?.[0]) return mapAgency(rows[0]);
+    return getAgencyForUser(userId, email);
+  }
+
+  export async function createAgencyForOwner({ id, name, slug, ownerUserId, ownerEmail }) {
+    if (!isPersistentStoreConfigured) throw new Error('Persistent Supabase storage must be configured before an agency can be created.');
+    try {
+      const rows = await requestTable('agencies', {
+        method: 'POST',
+        body: { id, name, slug, owner_user_id: ownerUserId, owner_email: String(ownerEmail).trim().toLowerCase() }
+      });
+      if (!rows?.[0]) throw new Error('Supabase did not return the new agency.');
+      await requestTable('marketplace_agency_profiles', {
+        method: 'POST',
+        body: { agency_id: id, tagline: 'Work we are proud to put our name on', story: `Welcome to ${name}. Tell customers about your team, your process, and what makes your work yours.` }
+      });
+      return mapAgency(rows[0]);
+    } catch (e) {
+      throw new Error(`Could not create agency in Supabase: ${e.message}`);
+    }
+  }
+
+  export async function getMarketplaceAgencies() {
+    if (!isPersistentStoreConfigured) return [{ id: 'tundestudio', name: "Tunde's Tailoring Studio", slug: 'tunde-studio' }];
+    const rows = await requestTable('agencies', { query: 'select=id,name,slug&order=name.asc' });
+    return (rows || []).map(mapAgency);
+  }
+    export async function addMarketplaceService({ id, agencyId, agencyName, category, title, description, priceCents, turnaround, initials }) {
+      if (!isPersistentStoreConfigured) throw new Error('Persistent Supabase storage must be configured before services can be published.');
+      try {
+        const rows = await requestTable('marketplace_services', {
+          method: 'POST',
+          body: {
+            id, agency_id: agencyId, agency_name: agencyName, category, title,
+            description, price_cents: priceCents, turnaround, initials, active: true
+          }
+        });
+        if (rows?.[0]) return mapMarketplaceService(rows[0]);
+        throw new Error('Supabase did not return the published service.');
+      } catch (e) {
+        throw new Error(`Could not publish marketplace service in Supabase: ${e.message}`);
+      }
+    }
+
+    function mapAgencyProfile(row, agencyName) {
+      return {
+        agencyId: row?.agency_id || 'tundestudio',
+        agencyName,
+        tagline: row?.tagline || 'Thoughtful work, made with care',
+        story: row?.story || 'We work closely with each customer, from the first conversation through the final handoff.'
+      };
+    }
+
+    export async function getMarketplaceAgencyProfile(agencyId, agencyName) {
+      if (!isPersistentStoreConfigured) return mapAgencyProfile(null, agencyName);
+      try {
+        const [profiles, agencies] = await Promise.all([
+          requestTable('marketplace_agency_profiles', { query: `agency_id=eq.${encodeURIComponent(agencyId)}&select=*` }),
+          getAgencyById(agencyId)
+        ]);
+        return mapAgencyProfile(profiles?.[0], agencies?.name || agencyName);
+      } catch (e) {
+        throw new Error(`Could not load agency profile from Supabase: ${e.message}`);
+      }
+    }
+
+    export async function updateMarketplaceAgencyProfile(agencyId, { tagline, story }, agencyName) {
+      if (!isPersistentStoreConfigured) throw new Error('Persistent Supabase storage must be configured before the agency profile can be updated.');
+      try {
+        const rows = await requestTable('marketplace_agency_profiles', {
+          method: 'POST',
+          query: 'on_conflict=agency_id',
+          prefer: 'resolution=merge-duplicates,return=representation',
+          body: { agency_id: agencyId, tagline, story }
+        });
+        if (rows?.[0]) return mapAgencyProfile(rows[0], agencyName);
+        throw new Error('Supabase did not return the updated agency profile.');
+      } catch (e) {
+        throw new Error(`Could not save agency profile in Supabase: ${e.message}`);
+      }
+    }
+
+    function publicPortfolioUrl(path) {
+      return `${supabaseUrl}/storage/v1/object/public/agency-portfolio/${path.split('/').map(encodeURIComponent).join('/')}`;
+    }
+
+    function mapMarketplacePortfolio(row) {
+      return {
+        id: row.id,
+        agencyId: row.agency_id,
+        title: row.title,
+        category: row.category,
+        description: row.description,
+        imageUrl: publicPortfolioUrl(row.image_path),
+        createdAt: row.created_at
+      };
+    }
+
+    export async function getMarketplacePortfolio(agencyId) {
+      if (!isPersistentStoreConfigured) return [];
+      try {
+        const rows = await requestTable('marketplace_portfolio', {
+          query: `agency_id=eq.${encodeURIComponent(agencyId)}&active=eq.true&select=*&order=created_at.desc`
+        });
+        return (rows || []).map(mapMarketplacePortfolio);
+      } catch (e) {
+        throw new Error(`Could not load agency portfolio from Supabase: ${e.message}`);
+      }
+    }
+
+    export async function uploadMarketplacePortfolioImage({ agencyId, imageBuffer, mimeType, extension }) {
+      if (!isPersistentStoreConfigured) throw new Error('Persistent Supabase storage must be configured before portfolio images can be uploaded.');
+      const imagePath = `${agencyId}/${crypto.randomUUID()}.${extension}`;
+      const response = await fetch(`${supabaseUrl}/storage/v1/object/agency-portfolio/${imagePath.split('/').map(encodeURIComponent).join('/')}`, {
+        method: 'POST',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': mimeType,
+          'x-upsert': 'false',
+          'cache-control': 'public, max-age=31536000'
+        },
+        body: imageBuffer
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`Could not upload portfolio image (${response.status}): ${detail || response.statusText}`);
+      }
+      return imagePath;
+    }
+
+    export async function addMarketplacePortfolioItem({ agencyId, title, category, description, imagePath }) {
+      try {
+        const rows = await requestTable('marketplace_portfolio', {
+          method: 'POST',
+          body: { agency_id: agencyId, title, category, description, image_path: imagePath, active: true }
+        });
+        if (rows?.[0]) return mapMarketplacePortfolio(rows[0]);
+        throw new Error('Supabase did not return the portfolio item.');
+      } catch (e) {
+        throw new Error(`Could not save portfolio item in Supabase: ${e.message}`);
+      }
+    }
+
+    export async function deleteMarketplacePortfolioItem(itemId, agencyId) {
+      try {
+        const rows = await requestTable('marketplace_portfolio', {
+          method: 'DELETE',
+          query: `id=eq.${encodeURIComponent(itemId)}&agency_id=eq.${encodeURIComponent(agencyId)}&select=*`
+        });
+        return rows?.[0] ? { ...mapMarketplacePortfolio(rows[0]), imagePath: rows[0].image_path } : null;
+      } catch (e) {
+        throw new Error(`Could not remove portfolio item from Supabase: ${e.message}`);
+      }
+    }
+
+    export async function deleteMarketplacePortfolioImage(imagePath) {
+      const response = await fetch(`${supabaseUrl}/storage/v1/object/agency-portfolio`, {
+        method: 'DELETE',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ prefixes: [imagePath] })
+      });
+      if (!response.ok) throw new Error(`Could not remove portfolio image (${response.status}): ${await response.text()}`);
     }

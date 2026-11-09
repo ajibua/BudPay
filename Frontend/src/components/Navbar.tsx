@@ -18,14 +18,23 @@ export default function Navbar() {
 
   const navLinks = role === 'boss'
     ? [
-        { href: '/split', label: 'Fair share' },
+        { href: '/agencies', label: 'Agencies' },
+        { href: '/marketplace', label: 'Marketplace' },
+        { href: '/history', label: 'Agency jobs' },
         { href: '/roster', label: 'Crew' },
         { href: '/hours', label: 'Hours' },
-        { href: '/history', label: 'History' },
       ]
     : role === 'crew'
-      ? [{ href: '/hours', label: 'My hours' }]
-      : [{ href: '/how-it-works', label: 'How it works' }];
+      ? [
+          { href: '/agencies', label: 'Agencies' },
+          { href: '/marketplace', label: 'Marketplace' },
+          { href: '/hours', label: 'My hours' },
+        ]
+      : [
+          { href: '/agencies', label: 'Agencies' },
+          { href: '/marketplace', label: 'Marketplace' },
+          { href: '/how-it-works', label: 'How it works' },
+        ];
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 

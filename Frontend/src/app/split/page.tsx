@@ -111,6 +111,8 @@ function SplitWizardContent() {
   const [bossShare, setBossShare] = useState<number>(90);
   const [isCreatingOrder, setIsCreatingOrder] = useState<boolean>(false);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [marketplaceBooking, setMarketplaceBooking] = useState<{ title: string; customerName: string; customerEmail: string; customerNotes: string } | null>(null);
+  const [bookingLoadError, setBookingLoadError] = useState<string | null>(null);
   const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
   const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
   const [customerPaymentCaptured, setCustomerPaymentCaptured] = useState<boolean>(false);
@@ -279,6 +281,39 @@ function SplitWizardContent() {
       }
       setLoadingData(false);
     });
+    return () => { active = false; };
+  }, [API_URL]);
+
+  // A confirmed marketplace booking reuses its captured payment; it must never
+  // create a second customer charge when the agency prepares the team split.
+  useEffect(() => {
+    const requestedJobId = new URLSearchParams(window.location.search).get('jobId');
+    if (!requestedJobId) return;
+    let active = true;
+    apiFetch(`${API_URL}/api/jobs/${encodeURIComponent(requestedJobId)}`)
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result.success || !result.data) throw new Error(result.error || 'Could not load this agency job.');
+        const job = result.data;
+        if (!job.serviceId || !job.paymentCaptured) throw new Error('This marketplace booking has not been paid yet.');
+        if (!active) return;
+        setJobId(job.id);
+        setPaypalOrderId(job.paypalOrderId || null);
+        setCustomerPayment(Number(job.totalCustomerPaymentCents) / 100);
+        setMaterialCosts(Number(job.materialCostsCents || 0) / 100);
+        setBossShare(Number(job.bossShareCents || 0) / 100);
+        setCustomerPaymentCaptured(true);
+        setStoryText('');
+        setCrewList([]);
+        setMarketplaceBooking({
+          title: job.title,
+          customerName: job.customerName || '',
+          customerEmail: job.customerEmail || '',
+          customerNotes: job.customerNotes || ''
+        });
+        setCurrentStep(2);
+      })
+      .catch(error => { if (active) setBookingLoadError(error.message || 'Could not load this agency job.'); });
     return () => { active = false; };
   }, [API_URL]);
 
@@ -602,6 +637,13 @@ function SplitWizardContent() {
       <div className="sr-only" aria-live="polite">
         Current step is step {currentStep} of 4.
       </div>
+
+      {bookingLoadError && <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">{bookingLoadError} <Link href="/history" className="underline">Return to agency jobs</Link>.</div>}
+      {marketplaceBooking && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+        <p className="font-bold">Paid marketplace booking: {marketplaceBooking.title}</p>
+        <p className="mt-1 text-xs">Customer: {marketplaceBooking.customerName} · {marketplaceBooking.customerEmail}</p>
+        {marketplaceBooking.customerNotes && <p className="mt-2 border-t border-blue-200 pt-2 text-xs leading-5">Customer request: {marketplaceBooking.customerNotes}</p>}
+      </div>}
 
       {/* Stepper Navigation */}
       <nav aria-label="Wizard Steps Progress" className="w-full">

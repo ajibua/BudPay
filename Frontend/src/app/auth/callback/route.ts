@@ -38,11 +38,11 @@ export async function GET(request: Request) {
     }
 
     if (!authorizationResponse.ok) {
-      await supabase.auth.signOut();
       return redirectToLogin(requestUrl, 'backend_unavailable');
     }
 
-    return NextResponse.redirect(new URL(authorization.role === 'crew' ? '/hours' : destination, requestUrl.origin));
+    const target = authorization.role === 'crew' ? '/hours' : authorization.role === 'onboarding' ? '/agency/setup' : destination;
+    return NextResponse.redirect(new URL(target, requestUrl.origin));
   } catch {
     return redirectToLogin(requestUrl, 'exchange_failed');
   }

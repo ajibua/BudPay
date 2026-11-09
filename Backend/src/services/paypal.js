@@ -15,6 +15,17 @@ if (!isAllowedPayPalSandbox) {
   throw new Error('FATAL SAFETY GUARD: PAYPAL_API_BASE must be https://api-m.sandbox.paypal.com');
 }
 
+function formatPayPalError(data, response, fallback) {
+  const diagnostics = Array.isArray(data.details)
+    ? data.details.map(detail => [detail.issue, detail.field, detail.description].filter(Boolean).join(': ')).join('; ')
+    : '';
+  const debugId = data.debug_id ? `PayPal reference: ${data.debug_id}` : '';
+  const error = new Error([data.message || fallback, diagnostics, debugId].filter(Boolean).join(' — '));
+  error.status = response.status;
+  error.code = data.name || 'PAYPAL_API_ERROR';
+  return error;
+}
+
 // Fetch OAuth2 Access Token from PayPal Sandbox using Client ID & Secret
 export async function getPayPalAccessToken() {
   const clientId = process.env.PAYPAL_CLIENT_ID;
@@ -52,7 +63,7 @@ export async function getPayPalAccessToken() {
 
 
 // Customer Checkout: Create a PayPal Order (e.g., $200 for wedding outfits)
-export async function createOrder({ amount, currency = 'USD', description = 'BudPay Job Payment' }) {
+export async function createOrder({ amount, currency = 'USD', description = 'BudPay Job Payment', returnUrl, cancelUrl }) {
   const numericAmount = parseFloat(amount);
   if (isNaN(numericAmount) || numericAmount <= 0) {
     throw new Error('Valid order amount is required');
@@ -73,8 +84,8 @@ export async function createOrder({ amount, currency = 'USD', description = 'Bud
     ],
     application_context: {
       user_action: 'PAY_NOW',
-      return_url: process.env.PAYPAL_RETURN_URL || 'http://localhost:3000',
-      cancel_url: process.env.PAYPAL_RETURN_URL || 'http://localhost:3000',
+      return_url: returnUrl || process.env.PAYPAL_RETURN_URL || 'http://localhost:3000',
+      cancel_url: cancelUrl || process.env.PAYPAL_RETURN_URL || 'http://localhost:3000',
     },
   };
 
@@ -90,7 +101,7 @@ export async function createOrder({ amount, currency = 'USD', description = 'Bud
   const data = await response.json();
   if (!response.ok) {
     console.error('PayPal Order Creation Error:', data);
-    throw new Error(data.message || JSON.stringify(data));
+    throw formatPayPalError(data, response, 'PayPal could not create the order.');
   }
 
   return data;
@@ -115,7 +126,7 @@ export async function captureOrder(orderId) {
   const data = await response.json();
   if (!response.ok) {
     console.error('PayPal Order Capture Error:', data);
-    throw new Error(data.message || JSON.stringify(data));
+    throw formatPayPalError(data, response, 'PayPal could not capture the order.');
   }
 
   return data;
@@ -135,7 +146,8 @@ export async function getOrderDetails(orderId) {
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.message || 'Failed to fetch order details');
+    console.error('PayPal Order Details Error:', data);
+    throw formatPayPalError(data, response, 'Could not check PayPal order status.');
   }
 
   return data;

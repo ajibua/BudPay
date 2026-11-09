@@ -1,22 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import { AuthProvider } from "@/components/AuthProvider";
 
-const geistSans = Geist({
+const geistSans = localFont({
+  src: "./fonts/geist-latin.woff2",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  display: "swap",
+  weight: "100 900",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/geist-mono-latin.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: "swap",
+  weight: "100 900",
 });
 
 export const metadata: Metadata = {
-  title: "BudPay | The Fair Pay Helper",
-  description: "PayPal moves the money. BudPay helps small business owners decide what is fair with story-driven crew splits and precise whole-cent math.",
+  title: "BudPay | Find a Service Team",
+  description: "Book services from skilled teams, pay securely, and let agencies manage fair team payouts with BudPay.",
 };
 
   export default function RootLayout({

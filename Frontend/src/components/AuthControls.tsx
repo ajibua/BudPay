@@ -6,7 +6,7 @@ import { ChevronDown, CircleUserRound } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 
 export default function AuthControls() {
-  const { session, loading, role, signOut } = useAuth();
+  const { session, loading, role, accessError, refreshAccess, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +49,7 @@ export default function AuthControls() {
             <p className="truncate text-sm font-semibold text-slate-900">{session.user.email}</p>
             <p className="mt-0.5 text-xs capitalize text-slate-500">{role || 'BudPay account'}</p>
           </div>
+          {accessError && <div className="border-b border-slate-100 px-3 py-2.5"><p className="text-xs leading-5 text-rose-700">{accessError}</p><button type="button" onClick={() => { setOpen(false); refreshAccess(); }} className="mt-2 text-xs font-bold text-blue-700 hover:text-blue-900">Retry workspace check</button></div>}
           <button
             type="button"
             onClick={() => { setOpen(false); void signOut(); }}
@@ -61,5 +62,5 @@ export default function AuthControls() {
     );
   }
 
-  return <Link href="/login" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700">Sign in</Link>;
+  return <Link href="/login" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700">Agency sign in</Link>;
 }

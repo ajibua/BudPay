@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import Footer from '@/components/Footer';
+import AgencyWorkspaceLink from '@/components/AgencyWorkspaceLink';
 import {
   Sparkles,
   CheckCircle2,
@@ -14,7 +15,8 @@ import {
   Layers,
   ChevronRight,
   Zap,
-  HelpCircle
+  BriefcaseBusiness,
+  Store
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -25,69 +27,97 @@ export default function LandingPage() {
       <section aria-labelledby="hero-heading" className="max-w-5xl mx-auto px-4 sm:px-8 text-center space-y-8">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-sm">
           <Sparkles className="w-4 h-4 text-blue-600" aria-hidden="true" />
-          <span>Fair pay for small teams</span>
+          <span>Book services. Pay teams fairly.</span>
         </div>
 
         <h1
           id="hero-heading"
           className="text-4xl sm:text-6xl font-black text-slate-900 tracking-tight leading-[1.1] max-w-4xl mx-auto"
         >
-          PayPal moves the money.{' '}
+          Find a team.{' '}
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
-            BudPay helps the boss decide what is fair.
+            Get the work done. Pay fairly.
           </span>
         </h1>
 
         <p className="text-base sm:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed font-normal">
-          For solo service owners splitting customer payments with their crew. Tell the story in plain words, adjust the boss&apos;s share, and let precise whole-cent math calculate what each person receives.
+          Discover service businesses, book with confidence, and pay securely. Agencies manage the work and use BudPay to share earnings fairly with their teams.
         </p>
 
         {/* Primary Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
           <Link
-            href="/split"
+            href="/marketplace"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-base shadow-lg shadow-blue-500/25 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
           >
-            <Calculator className="w-5 h-5" aria-hidden="true" />
-            Start Fair Sharing
+            <BriefcaseBusiness className="w-5 h-5" aria-hidden="true" />
+            Browse services
             <ArrowRight className="w-5 h-5" aria-hidden="true" />
           </Link>
 
-          <Link
-            href="/how-it-works"
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-base border border-slate-300 shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-600"
-          >
-            <HelpCircle className="w-5 h-5 text-slate-500" aria-hidden="true" />
-            How It Works
-          </Link>
+          <AgencyWorkspaceLink />
         </div>
+        <Link href="/agencies" className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 hover:text-blue-900">Discover agencies on BudPay <ArrowRight className="h-4 w-4" /></Link>
 
         {/* Trust Badges */}
         <div className="pt-6 flex flex-wrap items-center justify-center gap-6 sm:gap-10 text-xs font-semibold text-slate-500">
           <div className="flex items-center gap-1.5 text-emerald-800">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
-            <span>PayPal-powered payouts</span>
+            <span>PayPal Sandbox checkout and payouts</span>
           </div>
           <div className="flex items-center gap-1.5 text-slate-700">
             <Lock className="w-4 h-4 text-blue-600" aria-hidden="true" />
-            <span>Deterministic Math Guardrails</span>
+            <span>Exact-cent split calculations</span>
           </div>
           <div className="flex items-center gap-1.5 text-slate-700">
             <CheckCircle2 className="w-4 h-4 text-indigo-600" aria-hidden="true" />
-            <span>Zero-Downtime Resilience</span>
+            <span>Private agency crew workspaces</span>
           </div>
         </div>
+      </section>
+
+      <section aria-labelledby="budpay-story-heading" className="mx-auto max-w-6xl space-y-8 px-4 sm:px-8">
+        <div className="max-w-3xl"><span className="text-xs font-bold uppercase tracking-wider text-blue-700">The BudPay story</span><h2 id="budpay-story-heading" className="mt-2 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">Good work starts with the right team, and ends with a fair share.</h2><p className="mt-3 text-base leading-7 text-slate-600">BudPay connects customers who need a service with agencies that can deliver it, then gives each agency a private workspace to organize the work and pay the people behind it.</p></div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><BriefcaseBusiness className="h-5 w-5" /></span><p className="mt-4 text-xs font-black uppercase tracking-wider text-indigo-700">01 · Agencies</p><h3 className="mt-2 text-lg font-extrabold text-slate-900">A company sets up its home.</h3><p className="mt-2 text-sm leading-6 text-slate-600">The owner creates an agency profile, shares its story and work, publishes services, and builds a private crew workspace.</p></article>
+          <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Store className="h-5 w-5" /></span><p className="mt-4 text-xs font-black uppercase tracking-wider text-blue-700">02 · Discovery</p><h3 className="mt-2 text-lg font-extrabold text-slate-900">Customers find a team.</h3><p className="mt-2 text-sm leading-6 text-slate-600">People explore agencies, compare the services on offer, and choose the company that fits the job they have in mind.</p></article>
+          <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><HeartHandshake className="h-5 w-5" /></span><p className="mt-4 text-xs font-black uppercase tracking-wider text-emerald-700">03 · The service</p><h3 className="mt-2 text-lg font-extrabold text-slate-900">The customer brings the request.</h3><p className="mt-2 text-sm leading-6 text-slate-600">They share the details with the company, book as a guest, and approve payment through PayPal Sandbox. The agency takes ownership of delivery.</p></article>
+          <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Calculator className="h-5 w-5" /></span><p className="mt-4 text-xs font-black uppercase tracking-wider text-amber-700">04 · Fair sharing</p><h3 className="mt-2 text-lg font-extrabold text-slate-900">BudPay helps the team share.</h3><p className="mt-2 text-sm leading-6 text-slate-600">The agency tracks the job, reviews crew contributions, and prepares a transparent split. The boss checks and approves payouts to the crew.</p></article>
+        </div>
+        <div className="flex flex-wrap gap-3"><Link href="/agencies" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:border-blue-300 hover:text-blue-800">Discover agencies <ArrowRight className="h-4 w-4" /></Link><Link href="/marketplace" className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800">Find a service <ArrowRight className="h-4 w-4" /></Link></div>
+      </section>
+
+      <section aria-labelledby="two-sides-heading" className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-8 lg:grid-cols-2">
+        <article className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
+          <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800"><BriefcaseBusiness className="h-4 w-4" /> For customers</span>
+          <h2 id="two-sides-heading" className="mt-4 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Hire a company. Let them handle the crew.</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-600">Start in the marketplace: browse a service, compare its price and turnaround, and tell the agency what you need. Book as a guest, approve payment with PayPal, then return to BudPay to confirm it. You get a booking reference; the agency gets the job and your contact details.</p>
+          <p className="mt-3 text-sm leading-6 text-slate-600">You work with the service provider as one company. Its internal crew hours and payout shares stay in the agency workspace.</p>
+          <Link href="/marketplace" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800">Browse services as a guest <ArrowRight className="h-4 w-4" /></Link>
+        </article>
+
+        <article className="rounded-3xl border border-slate-200 bg-slate-950 p-7 text-white shadow-sm sm:p-9">
+          <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-blue-200"><Users className="h-4 w-4" /> For agencies</span>
+          <h2 className="mt-4 text-2xl font-extrabold tracking-tight sm:text-3xl">One paid job, a whole team behind it.</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-300">When a customer payment is confirmed, the agency sees the service, payment, and request in its jobs workspace. The owner coordinates the work, reviews what each person contributed, and uses BudPay to calculate a fair split with exact-cent math.</p>
+          <p className="mt-3 text-sm leading-6 text-slate-300">The boss reviews the result and explicitly approves the crew payout. Workers can sign in to log their own hours; the customer never has to manage those internal steps.</p>
+          <AgencyWorkspaceLink
+            signedOutLabel="Agency sign in"
+            iconClassName="text-slate-300"
+            className="mt-5 inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400"
+          />
+        </article>
       </section>
 
       {/* The 4 Core Principles Preview */}
       <section aria-labelledby="pillars-heading" className="max-w-6xl mx-auto px-4 sm:px-8">
         <div className="text-center space-y-3 mb-12">
-          <span className="text-xs font-bold uppercase tracking-wider text-blue-600">The Architecture</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-blue-600">Inside the agency workspace</span>
           <h2 id="pillars-heading" className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-            How The Money Actually Moves
+            How BudPay helps the agency share fairly
           </h2>
           <p className="text-sm sm:text-base text-slate-600 max-w-xl mx-auto">
-            BudPay removes the awkwardness and secrecy around crew splits with 4 transparent guardrails.
+            The customer books the company&apos;s service. After the work is done, BudPay helps the company review contributions and decide how its team gets paid.
           </p>
         </div>
 

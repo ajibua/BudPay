@@ -9,12 +9,19 @@ import { ProtectedPage } from '@/components/AuthProvider';
 interface JobRecord {
   id: string;
   title: string;
+  customerName: string;
+  customerEmail: string;
+  customerNotes: string;
+  serviceId: string;
+  customerStatus: 'not_applicable' | 'awaiting_payment' | 'paid' | 'in_progress' | 'completed';
+  agencyName: string;
   rawStory: string;
   totalCustomerPaymentCents: number;
   materialCostsCents: number;
   bossShareCents: number;
   crewPileCents: number;
   status: string;
+  paymentCaptured: boolean;
   paypalOrderId?: string;
   paypalPayoutBatchId?: string;
   createdAt: string;
@@ -24,6 +31,8 @@ function HistoryContent() {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(null);
+  const [bookingStatusError, setBookingStatusError] = useState<string | null>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -45,6 +54,25 @@ function HistoryContent() {
     }
   };
 
+  const updateBookingStatus = async (job: JobRecord, status: 'in_progress' | 'completed') => {
+    setUpdatingBookingId(job.id);
+    setBookingStatusError(null);
+    try {
+      const response = await apiFetch(`${API_URL}/api/marketplace/bookings/${encodeURIComponent(job.id)}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success || !result.data) throw new Error(result.error || 'Could not update booking progress.');
+      setJobs(current => current.map(item => item.id === job.id ? { ...item, customerStatus: result.data.customerStatus } : item));
+    } catch (err) {
+      setBookingStatusError(err instanceof Error ? err.message : 'Could not update booking progress.');
+    } finally {
+      setUpdatingBookingId(null);
+    }
+  };
+
   useEffect(() => {
     fetchJobs();
   }, []);
@@ -58,10 +86,10 @@ function HistoryContent() {
             Audit Trail & History
           </span>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-            Payout & Split History
+            Agency Jobs & Payouts
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Complete record of customer payments, story snapshots, and PayPal Sandbox batch payouts.
+            New customer bookings, captured payments, work stories, and PayPal Sandbox crew payouts.
           </p>
         </div>
 
@@ -102,6 +130,7 @@ function HistoryContent() {
         </div>
       ) : (
         <div className="space-y-4">
+          {bookingStatusError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{bookingStatusError}</p>}
           {jobs.map(job => (
             <article
               key={job.id}
@@ -114,8 +143,10 @@ function HistoryContent() {
                     Created {new Date(job.createdAt || Date.now()).toLocaleDateString()} at{' '}
                     {new Date(job.createdAt || Date.now()).toLocaleTimeString()}
                   </p>
+                  {job.agencyName && <p className="mt-1 text-xs font-medium text-slate-500">{job.agencyName}</p>}
                 </div>
                 <div className="flex items-center gap-2">
+                  {job.paymentCaptured && job.status === 'draft' && <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-800">New paid booking</span>}
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${job.status === 'sent'
                         ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
@@ -128,6 +159,35 @@ function HistoryContent() {
                   </span>
                 </div>
               </div>
+
+              {job.customerName && (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-blue-800">Customer booking {job.serviceId ? `· ${job.title}` : ''}</p>
+                  <div className="mt-2 flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
+                    <span className="font-bold text-slate-900">{job.customerName}</span>
+                    <a href={`mailto:${job.customerEmail}`} className="font-medium text-blue-800 underline underline-offset-2">{job.customerEmail}</a>
+                  </div>
+                  {job.customerNotes && <p className="mt-2 border-t border-blue-100 pt-2 text-xs leading-5 text-slate-600">{job.customerNotes}</p>}
+                </div>
+              )}
+
+              {job.serviceId && job.paymentCaptured && (
+                <div className="flex flex-col gap-3 rounded-2xl border border-violet-100 bg-violet-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">Customer progress</p>
+                    <p className="mt-1 text-sm font-bold capitalize text-slate-900">{(job.customerStatus || 'paid').replace(/_/g, ' ')}</p>
+                  </div>
+                  {job.customerStatus === 'paid' && <button type="button" onClick={() => updateBookingStatus(job, 'in_progress')} disabled={updatingBookingId === job.id} className="rounded-xl bg-violet-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-violet-800 disabled:opacity-60">{updatingBookingId === job.id ? 'Saving…' : 'Mark work started'}</button>}
+                  {job.customerStatus === 'in_progress' && <button type="button" onClick={() => updateBookingStatus(job, 'completed')} disabled={updatingBookingId === job.id} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-60">{updatingBookingId === job.id ? 'Saving…' : 'Mark service complete'}</button>}
+                </div>
+              )}
+
+              {job.serviceId && job.paymentCaptured && job.status === 'draft' && (
+                <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs leading-5 text-amber-900">Payment is confirmed. Review the work story and calculate the team&apos;s fair share when the job is complete.</p>
+                  <Link href={`/split?jobId=${encodeURIComponent(job.id)}`} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-800">Prepare team split <ArrowRight className="h-3.5 w-3.5" /></Link>
+                </div>
+              )}
 
               {job.rawStory && (
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 italic">
