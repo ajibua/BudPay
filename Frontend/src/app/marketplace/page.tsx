@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, BriefcaseBusiness, CheckCircle2, Clock3, LoaderCircle, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BriefcaseBusiness, CheckCircle2, ChevronDown, Clock3, LoaderCircle, Plus, ShieldCheck, Sparkles } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { apiFetch } from '@/lib/supabase';
 
@@ -260,12 +260,26 @@ export default function MarketplacePage() {
                 </div>
               )}
             </section>
-            <section aria-labelledby="marketplace-faq-title" className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 sm:grid-cols-2 sm:p-8">
-              <div className="sm:col-span-2"><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Before you book</p><h2 id="marketplace-faq-title" className="mt-1 text-xl font-extrabold text-slate-900">A few useful details</h2></div>
-              <article><h3 className="text-sm font-bold text-slate-900">Do I need to create an account?</h3><p className="mt-1 text-sm leading-6 text-slate-600">No. You can browse, book, and pay as a guest. The sign-in link is for agency owners and their crew.</p></article>
-              <article><h3 className="text-sm font-bold text-slate-900">What do I do after PayPal?</h3><p className="mt-1 text-sm leading-6 text-slate-600">PayPal returns you to BudPay, which verifies and captures the payment. You will see a booking reference and a link to check progress.</p></article>
-              <article><h3 className="text-sm font-bold text-slate-900">Will I get an email receipt or progress updates?</h3><p className="mt-1 text-sm leading-6 text-slate-600">Email updates are not available yet. Save your booking reference and check the marketplace using the same email you entered at checkout.</p></article>
-              <article><h3 className="text-sm font-bold text-slate-900">Can I see how the agency splits the money?</h3><p className="mt-1 text-sm leading-6 text-slate-600">The agency handles crew hours and payout decisions in its private workspace. Your booking is for the service provided by the company.</p></article>
+            <section aria-labelledby="marketplace-faq-title" className="rounded-3xl border border-slate-200 bg-white p-6 sm:p-8">
+              <div className="mb-6"><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Frequently asked questions</p><h2 id="marketplace-faq-title" className="mt-1 text-xl font-extrabold text-slate-900">FAQs</h2><p className="mt-2 text-sm leading-6 text-slate-600">Quick answers about booking, payment, and working with an agency.</p></div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <details className="group rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 open:bg-white open:shadow-sm">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-slate-900 [&::-webkit-details-marker]:hidden"><span>Do I need to create an account?</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" /></summary>
+                  <p className="mt-3 pr-7 text-sm leading-6 text-slate-600">No. You can browse, book, and pay as a guest. The sign-in link is for agency owners and their crew.</p>
+                </details>
+                <details className="group rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 open:bg-white open:shadow-sm">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-slate-900 [&::-webkit-details-marker]:hidden"><span>What do I do after PayPal?</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" /></summary>
+                  <p className="mt-3 pr-7 text-sm leading-6 text-slate-600">PayPal returns you to BudPay, which verifies and captures the payment. You will see a booking reference and a link to check progress.</p>
+                </details>
+                <details className="group rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 open:bg-white open:shadow-sm">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-slate-900 [&::-webkit-details-marker]:hidden"><span>Will I get an email receipt or progress updates?</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" /></summary>
+                  <p className="mt-3 pr-7 text-sm leading-6 text-slate-600">Email updates are not available yet. Save your booking reference and check the marketplace using the same email you entered at checkout.</p>
+                </details>
+                <details className="group rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 open:bg-white open:shadow-sm">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-slate-900 [&::-webkit-details-marker]:hidden"><span>Can I see how the agency splits the money?</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" /></summary>
+                  <p className="mt-3 pr-7 text-sm leading-6 text-slate-600">The agency handles crew hours and payout decisions in its private workspace. Your booking is for the service provided by the company.</p>
+                </details>
+              </div>
             </section>
           </>
         )}
