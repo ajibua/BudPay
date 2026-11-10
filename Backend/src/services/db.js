@@ -74,6 +74,7 @@ export const isPersistentStoreConfigured = Boolean(
       crewPileCents: Number(row.crew_pile_cents),
       status: row.status,
       paypalOrderId: row.paypal_order_id,
+      paypalPayeeMerchantId: row.paypal_payee_merchant_id || null,
       paypalCaptureId: row.paypal_capture_id,
       paymentCaptured: Boolean(row.payment_captured),
       paypalPayoutBatchId: row.paypal_payout_batch_id,
@@ -150,7 +151,7 @@ export const isPersistentStoreConfigured = Boolean(
   export async function createJob({
     title = 'Custom Job', rawStory = '', totalCustomerPaymentCents,
     materialCostsCents = 0, bossShareCents = 0, crewPileCents,
-    paypalOrderId, customerName = '', customerEmail = '', customerNotes = '',
+    paypalOrderId, paypalPayeeMerchantId = null, customerName = '', customerEmail = '', customerNotes = '',
     serviceId = '', agencyId = '', agencyName = '', id: requestedId, customerStatus = 'not_applicable'
   }) {
     const id = requestedId || crypto.randomUUID();
@@ -175,6 +176,7 @@ export const isPersistentStoreConfigured = Boolean(
               boss_share_cents: bossShareCents,
               crew_pile_cents: calculatedCrewPile,
               paypal_order_id: paypalOrderId || null,
+              paypal_payee_merchant_id: paypalPayeeMerchantId,
               payment_captured: false,
               status: 'draft'
             }
@@ -204,6 +206,7 @@ export const isPersistentStoreConfigured = Boolean(
     boss_share_cents: bossShareCents,
     crew_pile_cents: calculatedCrewPile,
     paypal_order_id: paypalOrderId || null,
+    paypal_payee_merchant_id: paypalPayeeMerchantId,
     paypal_capture_id: null,
     payment_captured: false,
     status: 'draft',
@@ -834,12 +837,20 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     }
 
   function mapAgency(row) {
-    return row ? { id: row.id, name: row.name, slug: row.slug, ownerEmail: row.owner_email || '' } : null;
+    return row ? {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      ownerEmail: row.owner_email || '',
+      paypalMerchantId: row.paypal_merchant_id || null,
+      paypalPayoutsEnabled: Boolean(row.paypal_payouts_enabled),
+      paypalConnectedAt: row.paypal_connected_at || null
+    } : null;
   }
 
   export async function getAgencyById(agencyId) {
     if (!agencyId) return null;
-    if (!isPersistentStoreConfigured) return agencyId === 'tundestudio' ? { id: 'tundestudio', name: process.env.BUDPAY_AGENCY_NAME?.trim() || "Tunde's Tailoring Studio", slug: 'tunde-studio', ownerEmail: '' } : null;
+    if (!isPersistentStoreConfigured) return agencyId === 'tundestudio' ? { id: 'tundestudio', name: process.env.BUDPAY_AGENCY_NAME?.trim() || "Tunde's Tailoring Studio", slug: 'tunde-studio', ownerEmail: '', paypalMerchantId: null, paypalPayoutsEnabled: false } : null;
     const rows = await requestTable('agencies', { query: `id=eq.${encodeURIComponent(agencyId)}&select=*` });
     return mapAgency(rows?.[0]);
   }
@@ -856,14 +867,20 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
 
   export async function getAgencyJobByPaypalOrder(orderId, agencyId) {
     if (!isPersistentStoreConfigured) return null;
-    const rows = await requestTable('jobs', { query: `paypal_order_id=eq.${encodeURIComponent(orderId)}&agency_id=eq.${encodeURIComponent(agencyId)}&select=id` });
-    return rows?.[0] || null;
+    const rows = await requestTable('jobs', { query: `paypal_order_id=eq.${encodeURIComponent(orderId)}&agency_id=eq.${encodeURIComponent(agencyId)}&select=*` });
+    return mapJob(rows?.[0]);
   }
 
   export async function hasAgencyPayoutBatch(batchId, agencyId) {
     if (!isPersistentStoreConfigured) return false;
     const rows = await requestTable('jobs', { query: `paypal_payout_batch_id=eq.${encodeURIComponent(batchId)}&agency_id=eq.${encodeURIComponent(agencyId)}&select=id&limit=1` });
     return Boolean(rows?.length);
+  }
+
+  export async function getAgencyJobByPayoutBatch(batchId, agencyId) {
+    if (!isPersistentStoreConfigured) return null;
+    const rows = await requestTable('jobs', { query: `paypal_payout_batch_id=eq.${encodeURIComponent(batchId)}&agency_id=eq.${encodeURIComponent(agencyId)}&select=*&limit=1` });
+    return mapJob(rows?.[0]);
   }
 
   export async function claimLegacyAgency(userId, email) {
@@ -895,10 +912,21 @@ export async function repairClaimedPayoutRequest(jobId, senderBatchId, payoutReq
     }
   }
 
+  export async function setAgencyPayPalMerchant(agencyId, merchantId, payoutsEnabled = false) {
+    if (!isPersistentStoreConfigured) throw new Error('Persistent Supabase storage must be configured before connecting a PayPal seller account.');
+    const rows = await requestTable('agencies', {
+      method: 'PATCH',
+      query: `id=eq.${encodeURIComponent(agencyId)}&select=*`,
+      body: { paypal_merchant_id: merchantId, paypal_payouts_enabled: payoutsEnabled, paypal_connected_at: new Date().toISOString() }
+    });
+    if (!rows?.[0]) throw new Error('Agency workspace was not found while saving its PayPal account.');
+    return mapAgency(rows[0]);
+  }
+
   export async function getMarketplaceAgencies() {
     if (!isPersistentStoreConfigured) return [{ id: 'tundestudio', name: "Tunde's Tailoring Studio", slug: 'tunde-studio' }];
     const rows = await requestTable('agencies', { query: 'select=id,name,slug&order=name.asc' });
-    return (rows || []).map(mapAgency);
+    return (rows || []).map(row => ({ id: row.id, name: row.name, slug: row.slug }));
   }
     export async function addMarketplaceService({ id, agencyId, agencyName, category, title, description, priceCents, turnaround, initials }) {
       if (!isPersistentStoreConfigured) throw new Error('Persistent Supabase storage must be configured before services can be published.');

@@ -10,9 +10,9 @@ The customer side is for finding an agency and paying for its service. The agenc
 
 The public **Agencies** directory introduces the companies on BudPay; the **Marketplace** focuses on comparing and booking their services. A customer can view each agency profile and its agency-submitted portfolio, book a service, and pay through PayPal Sandbox. Agency owners sign in and create a workspace; each workspace has its own boss, crew roster, work logs, jobs, and payout history. Boss and crew APIs are scoped to that agency. The profile owner can edit its story and portfolio; portfolio uploads accept JPEG, PNG, or WebP images up to 2 MB in the public Supabase Storage bucket `agency-portfolio`. Customers enter contact details and an optional request, approve a Sandbox order, and return to BudPay for capture and a booking reference. The selected agency sees its paid booking in its workspace and can prepare the crew split from that existing capture.
 
-BudPay stores each agency's own roster, job queue, portfolio, and payout records, but PayPal still captures payments through the configured merchant account. BudPay does not hold funds in escrow or automatically route customer funds to separate vendors. `BUDPAY_OWNER_EMAIL` remains only as a one-time bootstrap for claiming the existing `tundestudio` workspace; new agencies use their own confirmed Supabase account. Set optional `BUDPAY_AGENCY_NAME` to override the legacy demo agency's display name. Email receipts, customer feedback tied to completed bookings, identity checks, and marketplace-native vendor payment routing remain later milestones.
+Marketplace seller routing is available as an optional PayPal Sandbox partner flow. When connected-seller settings are configured, each agency connects its own Sandbox PayPal seller account; BudPay routes booking payments to that seller and submits later crew payouts in the same seller context. Without those partner settings, the existing single configured Sandbox merchant flow remains active. BudPay does not hold funds in escrow. `BUDPAY_OWNER_EMAIL` remains only as a one-time bootstrap for claiming the existing `tundestudio` workspace; new agencies use their own confirmed Supabase account. Set optional `BUDPAY_AGENCY_NAME` to override the legacy demo agency's display name. Email receipts, customer feedback tied to completed bookings, and identity checks remain later milestones.
 
-**Next build milestones:** add customer feedback tied to completed bookings, then consider stronger agency identity checks and customer account protections; add email receipts and customer-to-agency messaging; evaluate marketplace-native payment routing before describing BudPay as holding or splitting customer funds automatically. Portfolio entries are agency-submitted examples, not independently verified work or customer reviews.
+**Next build milestones:** add customer feedback tied to completed bookings, then consider stronger agency identity checks and customer account protections; add email receipts and customer-to-agency messaging. Portfolio entries are agency-submitted examples, not independently verified work or customer reviews.
 
 ## How it works
 
@@ -66,6 +66,8 @@ Copy `Backend/.env.example` to `Backend/.env` and fill in:
 - Supabase project URL and **service role** key
 - The frontend origin in `PAYPAL_RETURN_URL` (`http://localhost:3000` locally, and the deployed frontend origin in Vercel)
 
+To test connected agency seller accounts, the PayPal app must be enabled for the platform / multiparty Sandbox flow. Also set `PAYPAL_PARTNER_MERCHANT_ID` to the platform Sandbox business account's merchant ID and `PAYPAL_PARTNER_ATTRIBUTION_ID` to the PayPal-issued BN code. Then run the latest complete `Backend/schema.sql` so agencies can store connected seller IDs and payout permission. An agency boss can connect its Sandbox seller account from **Agency Jobs**. Marketplace bookings stay blocked for an agency until PayPal confirms the seller is eligible and has granted the requested crew payout permission. PayPal may return an authorization error until the platform integration is enabled for partner testing.
+
 Keep the Supabase service role key in the backend only. The backend refuses checkout and payouts when Supabase persistence is not configured. It also exits if the PayPal API URL is not a Sandbox host.
 
 Then run:
@@ -112,6 +114,8 @@ Add these in **Settings → Environment Variables** for Production and Preview a
 | `PAYPAL_API_BASE` | `https://api-m.sandbox.paypal.com` |
 | `PAYPAL_CLIENT_ID` | PayPal Sandbox app client ID |
 | `PAYPAL_CLIENT_SECRET` | PayPal Sandbox app secret |
+| `PAYPAL_PARTNER_MERCHANT_ID` | Platform PayPal Sandbox business merchant ID (connected sellers) |
+| `PAYPAL_PARTNER_ATTRIBUTION_ID` | PayPal-issued partner / BN attribution code |
 | `PAYPAL_RETURN_URL` | Frontend's Vercel URL, added after the frontend is deployed |
 | `GEMINI_API_KEY` | Google AI API key |
 | `BUDPAY_AGENCY_NAME` | Optional display-name override for the legacy Tunde Studio workspace |

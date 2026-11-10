@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { History, ShieldCheck, CheckCircle2, Clock, AlertCircle, RefreshCw, ArrowRight, ExternalLink } from 'lucide-react';
+import { History, ShieldCheck, CheckCircle2, Clock, AlertCircle, RefreshCw, ArrowRight, ExternalLink, WalletCards, LoaderCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/supabase';
 import { ProtectedPage } from '@/components/AuthProvider';
 
@@ -23,8 +23,17 @@ interface JobRecord {
   status: string;
   paymentCaptured: boolean;
   paypalOrderId?: string;
+  paypalPayeeMerchantId?: string | null;
   paypalPayoutBatchId?: string;
   createdAt: string;
+}
+
+interface AgencyPayPalStatus {
+  configured: boolean;
+  connected: boolean;
+  merchantId: string | null;
+  payoutsEnabled: boolean;
+  connectedAt: string | null;
 }
 
 function HistoryContent() {
@@ -33,6 +42,9 @@ function HistoryContent() {
   const [error, setError] = useState<string | null>(null);
   const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(null);
   const [bookingStatusError, setBookingStatusError] = useState<string | null>(null);
+  const [paypalStatus, setPaypalStatus] = useState<AgencyPayPalStatus | null>(null);
+  const [paypalStatusError, setPaypalStatusError] = useState<string | null>(null);
+  const [connectingPayPal, setConnectingPayPal] = useState(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -51,6 +63,40 @@ function HistoryContent() {
       setError(err.message || 'Could not fetch history from backend');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPayPalStatus = async () => {
+    setPaypalStatusError(null);
+    try {
+      const response = await apiFetch(`${API_URL}/api/paypal/agency/status`);
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not check the agency PayPal connection.');
+      setPaypalStatus(result);
+    } catch (err) {
+      setPaypalStatusError(err instanceof Error ? err.message : 'Could not check the agency PayPal connection.');
+    }
+  };
+
+  const connectedAccountJobs = paypalStatus?.merchantId
+    ? jobs.filter(job => job.paypalPayeeMerchantId === paypalStatus.merchantId)
+    : [];
+  const capturedPaymentsCents = connectedAccountJobs.filter(job => job.serviceId && job.paymentCaptured)
+    .reduce((total, job) => total + job.totalCustomerPaymentCents, 0);
+  const sentCrewPayoutsCents = connectedAccountJobs.filter(job => job.status === 'sent')
+    .reduce((total, job) => total + job.crewPileCents, 0);
+
+  const connectPayPal = async () => {
+    setConnectingPayPal(true);
+    setPaypalStatusError(null);
+    try {
+      const response = await apiFetch(`${API_URL}/api/paypal/agency/onboarding`, { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok || !result.success || typeof result.actionUrl !== 'string') throw new Error(result.error || 'Could not start PayPal seller onboarding.');
+      window.location.assign(result.actionUrl);
+    } catch (err) {
+      setPaypalStatusError(err instanceof Error ? err.message : 'Could not start PayPal seller onboarding.');
+      setConnectingPayPal(false);
     }
   };
 
@@ -75,6 +121,7 @@ function HistoryContent() {
 
   useEffect(() => {
     fetchJobs();
+    fetchPayPalStatus();
   }, []);
 
   return (
@@ -103,6 +150,30 @@ function HistoryContent() {
           Refresh History
         </button>
       </div>
+
+      <section aria-labelledby="agency-paypal-title" className="rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-blue-700 shadow-sm"><WalletCards className="h-5 w-5" /></span>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700">Agency payments</p>
+              <h2 id="agency-paypal-title" className="mt-1 text-lg font-extrabold text-slate-900">PayPal Sandbox seller account</h2>
+              {!paypalStatus && !paypalStatusError && <p className="mt-1 text-sm text-slate-600">Checking the agency connection…</p>}
+              {paypalStatus?.connected && paypalStatus.payoutsEnabled && <p className="mt-1 text-sm leading-6 text-slate-600">Connected seller <span className="font-mono text-xs">{paypalStatus.merchantId}</span>. Marketplace payments and team payouts can use this agency&apos;s Sandbox account.</p>}
+              {paypalStatus?.connected && !paypalStatus.payoutsEnabled && <p className="mt-1 text-sm leading-6 text-amber-800">Connected seller <span className="font-mono text-xs">{paypalStatus.merchantId}</span>, but PayPal has not confirmed crew payout permission. Finish the PayPal permissions step before accepting bookings.</p>}
+              {paypalStatus && !paypalStatus.connected && paypalStatus.configured && <p className="mt-1 text-sm leading-6 text-slate-600">Connect an agency-owned PayPal Sandbox account before taking marketplace payments. This also requests permission for BudPay to send crew payouts from that agency account.</p>}
+              {paypalStatus && !paypalStatus.configured && <p className="mt-1 text-sm leading-6 text-slate-600">Connected-seller routing is waiting for PayPal platform settings. Current Sandbox checkout remains on BudPay&apos;s configured merchant account.</p>}
+            </div>
+          </div>
+          {paypalStatus?.configured && (!paypalStatus.connected || !paypalStatus.payoutsEnabled) && <button type="button" onClick={() => void connectPayPal()} disabled={connectingPayPal} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60">{connectingPayPal ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}{connectingPayPal ? 'Opening PayPal…' : paypalStatus.connected ? 'Finish PayPal permissions' : 'Connect PayPal seller'}</button>}
+        </div>
+        {paypalStatusError && <p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{paypalStatusError}</p>}
+      </section>
+
+      {paypalStatus?.connected && <section aria-label="Agency PayPal payment totals" className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Captured marketplace payments</p><p className="mt-1 text-2xl font-black text-slate-900">${(capturedPaymentsCents / 100).toFixed(2)}</p><p className="mt-1 text-xs leading-5 text-slate-500">Recorded against this connected agency Sandbox account.</p></div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Crew payouts sent</p><p className="mt-1 text-2xl font-black text-emerald-700">${(sentCrewPayoutsCents / 100).toFixed(2)}</p><p className="mt-1 text-xs leading-5 text-slate-500">PayPal Sandbox batches submitted from this agency account.</p></div>
+      </section>}
 
       {loading ? (
         <div className="p-12 text-center bg-white border border-slate-200 rounded-3xl text-slate-400 text-sm">

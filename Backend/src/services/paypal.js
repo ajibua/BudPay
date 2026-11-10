@@ -61,9 +61,105 @@ export async function getPayPalAccessToken() {
   };
 }
 
+function getPlatformMerchantId() {
+  return process.env.PAYPAL_PARTNER_MERCHANT_ID?.trim() || '';
+}
+
+function getPartnerAttributionId() {
+  return process.env.PAYPAL_PARTNER_ATTRIBUTION_ID?.trim() || '';
+}
+
+export function isPayPalMarketplaceConfigured() {
+  return Boolean(getPlatformMerchantId() && getPartnerAttributionId());
+}
+
+function createAuthAssertion(merchantId) {
+  const clientId = process.env.PAYPAL_CLIENT_ID?.trim();
+  if (!clientId || !merchantId) throw new Error('PayPal platform and agency merchant IDs are required for connected-agency payments.');
+  const base64Url = value => Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const header = base64Url(JSON.stringify({ alg: 'none' }));
+  const payload = base64Url(JSON.stringify({ iss: clientId, payer_id: merchantId }));
+  return `${header}.${payload}.`;
+}
+
+function partnerHeaders(merchantId) {
+  const attributionId = getPartnerAttributionId();
+  if (!attributionId) throw new Error('Set PAYPAL_PARTNER_ATTRIBUTION_ID before using connected-agency payments.');
+  return {
+    'PayPal-Partner-Attribution-Id': attributionId,
+    'PayPal-Auth-Assertion': createAuthAssertion(merchantId)
+  };
+}
+
+export async function createSellerOnboardingLink({ agencyId, returnUrl }) {
+  if (!isPayPalMarketplaceConfigured()) {
+    throw new Error('Connected-agency payments are not configured. Set PAYPAL_PARTNER_MERCHANT_ID and PAYPAL_PARTNER_ATTRIBUTION_ID.');
+  }
+  if (typeof agencyId !== 'string' || !agencyId || agencyId.length > 127) throw new Error('A valid agency ID is required for PayPal onboarding.');
+  const { accessToken } = await getPayPalAccessToken();
+  const response = await fetch(`${PAYPAL_API_BASE}/v2/customer/partner-referrals`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...partnerHeaders(getPlatformMerchantId())
+    },
+    body: JSON.stringify({
+      tracking_id: agencyId,
+      operations: [{
+        operation: 'API_INTEGRATION',
+        api_integration_preference: {
+          rest_api_integration: {
+            integration_method: 'PAYPAL',
+            integration_type: 'THIRD_PARTY',
+            third_party_details: { features: ['PAYMENT', 'REFUND', 'PAYOUTS'] }
+          }
+        }
+      }],
+      products: ['EXPRESS_CHECKOUT'],
+      legal_consents: [{ type: 'SHARE_DATA_CONSENT', granted: true }],
+      partner_config_override: {
+        return_url: returnUrl,
+        return_url_description: 'Return to BudPay to finish connecting the agency PayPal account'
+      }
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw formatPayPalError(data, response, 'PayPal could not create an agency onboarding link.');
+  const actionUrl = data.links?.find(link => link.rel === 'action_url')?.href;
+  if (typeof actionUrl !== 'string' || !actionUrl.startsWith('https://www.sandbox.paypal.com/')) {
+    throw new Error('PayPal did not return a valid Sandbox seller-onboarding link.');
+  }
+  return { actionUrl };
+}
+
+export async function verifyConnectedSeller(merchantId) {
+  if (!isPayPalMarketplaceConfigured()) throw new Error('Connected-agency payments are not configured.');
+  if (typeof merchantId !== 'string' || !/^[A-Za-z0-9]{8,32}$/.test(merchantId)) throw new Error('PayPal returned an invalid seller merchant ID.');
+  const { accessToken } = await getPayPalAccessToken();
+  const endpoint = `${PAYPAL_API_BASE}/v1/customer/partners/${encodeURIComponent(getPlatformMerchantId())}/merchant-integrations/${encodeURIComponent(merchantId)}`;
+  const response = await fetch(endpoint, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...partnerHeaders(merchantId)
+    }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw formatPayPalError(data, response, 'PayPal could not verify the agency seller account.');
+  if (data.payments_receivable !== true || data.primary_email_confirmed !== true) {
+    throw new Error('The PayPal seller account must finish onboarding, confirm its email, and be eligible to receive payments.');
+  }
+  const scopes = (data.oauth_integrations || [])
+    .flatMap(integration => integration.oauth_third_party || [])
+    .flatMap(integration => integration.scopes || []);
+  const payoutPermissionGranted = scopes.some(scope => /payout/i.test(scope));
+  return { merchantId, payoutPermissionGranted };
+}
+
 
 // Customer Checkout: Create a PayPal Order (e.g., $200 for wedding outfits)
-export async function createOrder({ amount, currency = 'USD', description = 'BudPay Job Payment', returnUrl, cancelUrl }) {
+export async function createOrder({ amount, currency = 'USD', description = 'BudPay Job Payment', returnUrl, cancelUrl, sellerMerchantId = null }) {
   const numericAmount = parseFloat(amount);
   if (isNaN(numericAmount) || numericAmount <= 0) {
     throw new Error('Valid order amount is required');
@@ -71,17 +167,21 @@ export async function createOrder({ amount, currency = 'USD', description = 'Bud
 
   const { accessToken } = await getPayPalAccessToken();
 
+  const purchaseUnit = {
+    description,
+    amount: {
+      currency_code: currency,
+      value: numericAmount.toFixed(2),
+    },
+  };
+  if (sellerMerchantId) {
+    if (!isPayPalMarketplaceConfigured()) throw new Error('Agency PayPal payments require the PayPal partner settings to be configured.');
+    purchaseUnit.payee = { merchant_id: sellerMerchantId };
+    purchaseUnit.payment_instruction = { disbursement_mode: 'INSTANT' };
+  }
   const payload = {
     intent: 'CAPTURE',
-    purchase_units: [
-      {
-        description,
-        amount: {
-          currency_code: currency,
-          value: numericAmount.toFixed(2),
-        },
-      },
-    ],
+    purchase_units: [purchaseUnit],
     application_context: {
       user_action: 'PAY_NOW',
       return_url: returnUrl || process.env.PAYPAL_RETURN_URL || 'http://localhost:3000',
@@ -89,12 +189,14 @@ export async function createOrder({ amount, currency = 'USD', description = 'Bud
     },
   };
 
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    ...(sellerMerchantId ? partnerHeaders(sellerMerchantId) : {})
+  };
   const response = await fetch(`${PAYPAL_API_BASE}/v2/checkout/orders`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -108,7 +210,7 @@ export async function createOrder({ amount, currency = 'USD', description = 'Bud
 }
 
 // Customer Checkout: Capture PayPal Order once approved by customer
-export async function captureOrder(orderId) {
+export async function captureOrder(orderId, sellerMerchantId = null) {
   if (!orderId) {
     throw new Error('orderId is required');
   }
@@ -120,6 +222,7 @@ export async function captureOrder(orderId) {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
+      ...(sellerMerchantId ? partnerHeaders(sellerMerchantId) : {})
     },
   });
 
@@ -133,7 +236,7 @@ export async function captureOrder(orderId) {
 }
 
 // Customer Checkout: Get details of an order
-export async function getOrderDetails(orderId) {
+export async function getOrderDetails(orderId, sellerMerchantId = null) {
   const { accessToken } = await getPayPalAccessToken();
 
   const response = await fetch(`${PAYPAL_API_BASE}/v2/checkout/orders/${orderId}`, {
@@ -141,6 +244,7 @@ export async function getOrderDetails(orderId) {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
+      ...(sellerMerchantId ? partnerHeaders(sellerMerchantId) : {})
     },
   });
 
@@ -154,7 +258,7 @@ export async function getOrderDetails(orderId) {
 }
 
 // Send a test or single payout to a crew member in the Sandbox
-export async function createSinglePayout({ recipientEmail, amount, note, currency = 'USD' }) {
+export async function createSinglePayout({ recipientEmail, amount, note, currency = 'USD', sellerMerchantId = null }) {
   return createBatchPayout({
     payoutItems: [
       {
@@ -166,6 +270,7 @@ export async function createSinglePayout({ recipientEmail, amount, note, currenc
     emailSubject: 'You received a payment from BudPay!',
     emailMessage: note || 'Thank you for your hard work on the project!',
     currency,
+    sellerMerchantId,
   });
 }
 
@@ -186,7 +291,7 @@ function findPayoutResourceLink(value) {
   }
   return null;
 }
-export async function createBatchPayout({ payoutItems, emailSubject, emailMessage, currency = 'USD', customBatchId }) {
+export async function createBatchPayout({ payoutItems, emailSubject, emailMessage, currency = 'USD', customBatchId, sellerMerchantId = null }) {
   if (!payoutItems || !payoutItems.length) {
     throw new Error('At least one payout item is required');
   }
@@ -236,6 +341,7 @@ export async function createBatchPayout({ payoutItems, emailSubject, emailMessag
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
+      ...(sellerMerchantId ? partnerHeaders(sellerMerchantId) : {})
     },
     body: JSON.stringify(payload),
   });
@@ -248,7 +354,7 @@ export async function createBatchPayout({ payoutItems, emailSubject, emailMessag
     const payoutLink = findPayoutResourceLink(data);
     const originalBatchId = payoutLink?.match(/\/v1\/payments\/payouts\/([^/?]+)/)?.[1];
     if (duplicate && originalBatchId) {
-      const original = await getPayoutStatus(originalBatchId);
+      const original = await getPayoutStatus(originalBatchId, sellerMerchantId);
       return {
         batchId: original.batch_header.payout_batch_id,
         batchStatus: original.batch_header.batch_status,
@@ -272,7 +378,7 @@ export async function createBatchPayout({ payoutItems, emailSubject, emailMessag
 }
 
 // Check the status of a payout batch in PayPal Sandbox
-export async function getPayoutStatus(batchId) {
+export async function getPayoutStatus(batchId, sellerMerchantId = null) {
   const { accessToken } = await getPayPalAccessToken();
 
   const response = await fetch(`${PAYPAL_API_BASE}/v1/payments/payouts/${batchId}`, {
@@ -280,6 +386,7 @@ export async function getPayoutStatus(batchId) {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
+      ...(sellerMerchantId ? partnerHeaders(sellerMerchantId) : {})
     },
   });
 

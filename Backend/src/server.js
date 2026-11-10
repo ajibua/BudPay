@@ -4,7 +4,8 @@ import cors from 'cors';
 import crypto from 'crypto';
 import {
   getPayPalAccessToken, createBatchPayout, getPayoutStatus,
-  createOrder, captureOrder, getOrderDetails
+  createOrder, captureOrder, getOrderDetails, isPayPalMarketplaceConfigured,
+  createSellerOnboardingLink, verifyConnectedSeller
 } from './services/paypal.js';
 import { parseCrewStory } from './services/gemini.js';
 import { calculateFairPay, validatePaymentGuardrails } from './services/mathEngine.js';
@@ -16,7 +17,8 @@ import {
   getMarketplaceServices, getMarketplaceService, addMarketplaceService,
   getMarketplaceAgencyProfile, updateMarketplaceAgencyProfile, getMarketplacePortfolio,
   getAgencyById, getAgencyForUser, claimLegacyAgency, createAgencyForOwner, getMarketplaceAgencies,
-  getAgencyJobByPaypalOrder, hasAgencyPayoutBatch,
+  getAgencyJobByPaypalOrder, getAgencyJobByPayoutBatch,
+  setAgencyPayPalMerchant,
   uploadMarketplacePortfolioImage, addMarketplacePortfolioItem, deleteMarketplacePortfolioItem, deleteMarketplacePortfolioImage,
   findMarketplaceBooking, updateMarketplaceCustomerStatus
 } from './services/db.js';
@@ -176,6 +178,53 @@ app.post('/api/agencies', async (req, res) => {
     res.status(201).json({ success: true, agency });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/paypal/agency/status', (req, res) => {
+  if (res.locals.budpayUser?.role !== 'boss') return res.status(403).json({ success: false, error: 'Only an agency owner can manage its PayPal connection.' });
+  const agency = res.locals.budpayUser.agency;
+  res.json({
+    success: true,
+    configured: isPayPalMarketplaceConfigured(),
+    connected: Boolean(agency?.paypalMerchantId),
+    merchantId: agency?.paypalMerchantId || null,
+    payoutsEnabled: Boolean(agency?.paypalPayoutsEnabled),
+    connectedAt: agency?.paypalConnectedAt || null
+  });
+});
+
+app.post('/api/paypal/agency/onboarding', async (req, res) => {
+  try {
+    if (res.locals.budpayUser?.role !== 'boss') return res.status(403).json({ success: false, error: 'Only an agency owner can connect a PayPal seller account.' });
+    if (!requireStorage(res)) return;
+    const agency = res.locals.budpayUser.agency;
+    if (agency?.paypalMerchantId && agency.paypalPayoutsEnabled) return res.status(409).json({ success: false, error: 'This agency already has a connected PayPal seller account with team payout permission.' });
+    const frontendOrigin = process.env.PAYPAL_RETURN_URL || 'http://localhost:3000';
+    const returnUrl = new URL('/agency/paypal/return', frontendOrigin).toString();
+    const { actionUrl } = await createSellerOnboardingLink({ agencyId: res.locals.budpayUser.agencyId, returnUrl });
+    res.json({ success: true, actionUrl });
+  } catch (err) {
+    console.error('PayPal Agency Onboarding Error:', err.message);
+    res.status(err.status || 400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/paypal/agency/complete', async (req, res) => {
+  try {
+    if (res.locals.budpayUser?.role !== 'boss') return res.status(403).json({ success: false, error: 'Only an agency owner can connect a PayPal seller account.' });
+    if (!requireStorage(res)) return;
+    const { trackingId, merchantId, permissionsGranted, consentStatus, isEmailConfirmed } = req.body || {};
+    if (trackingId !== res.locals.budpayUser.agencyId) return res.status(403).json({ success: false, error: 'The PayPal onboarding return does not match this agency workspace.' });
+    if (permissionsGranted !== true || consentStatus !== true || isEmailConfirmed !== true) {
+      return res.status(409).json({ success: false, error: 'PayPal did not confirm seller consent and email verification. Finish the PayPal onboarding steps, then retry.' });
+    }
+    const verified = await verifyConnectedSeller(merchantId);
+    const agency = await setAgencyPayPalMerchant(res.locals.budpayUser.agencyId, verified.merchantId, verified.payoutPermissionGranted);
+    res.json({ success: true, agency: { id: agency.id, name: agency.name, connected: true, payoutsEnabled: agency.paypalPayoutsEnabled } });
+  } catch (err) {
+    console.error('PayPal Agency Connection Verification Error:', err.message);
+    res.status(err.status || 400).json({ success: false, error: err.message });
   }
 });
 
@@ -551,8 +600,18 @@ app.post('/api/marketplace/bookings', async (req, res) => {
     const { serviceId, customerName, customerEmail, notes = '' } = req.body || {};
     const service = await getMarketplaceService(serviceId, MARKETPLACE_SERVICES);
     if (!service) return res.status(404).json({ success: false, error: 'That service is no longer available.' });
+    const agencyAccount = await getAgencyById(service.agencyId);
     if (service.agencyId === 'tundestudio' && process.env.BUDPAY_AGENCY_NAME?.trim()) {
       service.agencyName = process.env.BUDPAY_AGENCY_NAME.trim();
+    }
+    if (isPayPalMarketplaceConfigured() && !agencyAccount?.paypalMerchantId) {
+      return res.status(409).json({ success: false, error: 'This agency has not connected its PayPal seller account yet.' });
+    }
+    if (agencyAccount?.paypalMerchantId && !isPayPalMarketplaceConfigured()) {
+      return res.status(503).json({ success: false, error: 'This agency is connected to PayPal, but BudPay partner payment settings are unavailable. Checkout is paused for safety.' });
+    }
+    if (isPayPalMarketplaceConfigured() && !agencyAccount?.paypalPayoutsEnabled) {
+      return res.status(409).json({ success: false, error: 'This agency must grant PayPal payout permission before accepting marketplace bookings, so BudPay can send the team split from the agency account.' });
     }
     if (typeof customerName !== 'string' || customerName.trim().length < 2 || customerName.trim().length > 100) {
       return res.status(400).json({ success: false, error: 'Enter your name (2 to 100 characters).' });
@@ -573,7 +632,8 @@ app.post('/api/marketplace/bookings', async (req, res) => {
     cancelUrl.searchParams.set('payment', 'cancel');
     cancelUrl.searchParams.set('bookingId', bookingId);
     const amount = service.priceCents / 100;
-    const order = await createOrder({ amount, currency: 'USD', description: service.title, returnUrl: returnUrl.toString(), cancelUrl: cancelUrl.toString() });
+    const sellerMerchantId = isPayPalMarketplaceConfigured() ? agencyAccount.paypalMerchantId : null;
+    const order = await createOrder({ amount, currency: 'USD', description: service.title, returnUrl: returnUrl.toString(), cancelUrl: cancelUrl.toString(), sellerMerchantId });
     const approvalUrl = order.links?.find(link => link.rel === 'approve')?.href;
     if (!approvalUrl) throw new Error('PayPal did not return an approval link.');
     const job = await createJob({
@@ -585,6 +645,7 @@ app.post('/api/marketplace/bookings', async (req, res) => {
       bossShareCents: 0,
       crewPileCents: service.priceCents,
       paypalOrderId: order.id,
+      paypalPayeeMerchantId: sellerMerchantId,
       customerName: customerName.trim(),
       customerEmail: customerEmail.trim().toLowerCase(),
       serviceId: service.id,
@@ -619,15 +680,19 @@ app.post('/api/marketplace/bookings/:jobId/capture', async (req, res) => {
     });
     if (job.paymentCaptured) return res.json({ success: true, status: 'COMPLETED', bookingId: job.id, alreadyCaptured: true, booking: booking(job) });
 
-    const details = await getOrderDetails(job.paypalOrderId);
+    const details = await getOrderDetails(job.paypalOrderId, job.paypalPayeeMerchantId);
     if (!['APPROVED', 'COMPLETED'].includes(details.status)) {
       return res.status(409).json({ success: false, error: 'Approve the PayPal order before confirming payment.', status: details.status });
     }
     const orderAmount = details.purchase_units?.[0]?.amount;
+    const orderPayeeId = details.purchase_units?.[0]?.payee?.merchant_id;
+    if (job.paypalPayeeMerchantId && orderPayeeId !== job.paypalPayeeMerchantId) {
+      return res.status(409).json({ success: false, error: 'PayPal order is not payable to this agency’s connected seller account.' });
+    }
     if (orderAmount?.currency_code !== 'USD' || moneyToCents(orderAmount.value, 'PayPal order amount') !== job.totalCustomerPaymentCents) {
       return res.status(409).json({ success: false, error: 'PayPal order amount does not match this booking.' });
     }
-    const capture = details.status === 'COMPLETED' ? details : await captureOrder(job.paypalOrderId);
+    const capture = details.status === 'COMPLETED' ? details : await captureOrder(job.paypalOrderId, job.paypalPayeeMerchantId);
     if (capture.status !== 'COMPLETED') {
       return res.status(409).json({ success: false, error: `PayPal capture is ${capture.status || 'not completed'}.`, status: capture.status });
     }
@@ -756,14 +821,25 @@ app.post('/api/paypal/create-order', async (req, res) => {
     if (totalCents < 1) throw new Error('Customer payment must be at least one cent.');
     if (costsCents + bossCents > totalCents) throw new Error('Costs and boss share cannot exceed customer payment.');
     if (currency !== 'USD') throw new Error('BudPay currently supports USD sandbox orders only.');
-
-    const order = await createOrder({ amount: totalCents / 100, currency, description });
+    const agency = res.locals.budpayUser.agency;
+    if (agency?.paypalMerchantId && !isPayPalMarketplaceConfigured()) {
+      return res.status(503).json({ success: false, error: 'This agency is connected to PayPal, but BudPay partner payment settings are unavailable. Checkout is paused for safety.' });
+    }
+    if (isPayPalMarketplaceConfigured() && !agency?.paypalMerchantId) {
+      return res.status(409).json({ success: false, error: 'Connect this agency’s PayPal seller account before creating a customer payment.' });
+    }
+    if (isPayPalMarketplaceConfigured() && !agency?.paypalPayoutsEnabled) {
+      return res.status(409).json({ success: false, error: 'This agency must grant PayPal payout permission before taking a payment that will be split with the team.' });
+    }
+    const sellerMerchantId = isPayPalMarketplaceConfigured() ? agency.paypalMerchantId : null;
+    const order = await createOrder({ amount: totalCents / 100, currency, description, sellerMerchantId });
     const job = await createJob({
       title: String(title).slice(0, 255), totalCustomerPaymentCents: totalCents,
       materialCostsCents: costsCents, bossShareCents: bossCents,
       crewPileCents: totalCents - costsCents - bossCents, paypalOrderId: order.id,
+      paypalPayeeMerchantId: sellerMerchantId,
       agencyId: res.locals.budpayUser.agencyId,
-      agencyName: res.locals.budpayUser.agency.name
+      agencyName: agency.name
     });
     const approvalUrl = order.links?.find(link => link.rel === 'approve')?.href;
     res.json({ success: true, jobId: job.id, orderId: order.id, status: order.status, approvalUrl });
@@ -783,15 +859,19 @@ app.post('/api/paypal/capture-order/:orderId', async (req, res) => {
     if (!job || job.paypalOrderId !== orderId) return res.status(404).json({ success: false, error: 'This PayPal order is not linked to the requested job.' });
     if (job.paymentCaptured) return res.json({ success: true, status: 'COMPLETED', jobId: job.id, alreadyCaptured: true });
 
-    const details = await getOrderDetails(orderId);
+    const details = await getOrderDetails(orderId, job.paypalPayeeMerchantId);
     if (!['APPROVED', 'COMPLETED'].includes(details.status)) {
       return res.status(409).json({ success: false, error: 'The customer must approve the PayPal order before capture.', status: details.status });
     }
     const orderAmount = details.purchase_units?.[0]?.amount;
+    const orderPayeeId = details.purchase_units?.[0]?.payee?.merchant_id;
+    if (job.paypalPayeeMerchantId && orderPayeeId !== job.paypalPayeeMerchantId) {
+      return res.status(409).json({ success: false, error: 'PayPal order is not payable to this agency’s connected seller account.' });
+    }
     if (orderAmount?.currency_code !== 'USD' || moneyToCents(orderAmount.value, 'PayPal order amount') !== job.totalCustomerPaymentCents) {
       return res.status(409).json({ success: false, error: 'PayPal order amount does not match this job.' });
     }
-    const capture = details.status === 'COMPLETED' ? details : await captureOrder(orderId);
+    const capture = details.status === 'COMPLETED' ? details : await captureOrder(orderId, job.paypalPayeeMerchantId);
     if (capture.status !== 'COMPLETED') {
       return res.status(409).json({ success: false, error: `PayPal capture is ${capture.status || 'not completed'}.`, status: capture.status });
     }
@@ -809,7 +889,7 @@ app.get('/api/paypal/order/:orderId', async (req, res) => {
   try {
     const job = await getAgencyJobByPaypalOrder(req.params.orderId, res.locals.budpayUser.agencyId);
     if (!job) return res.status(404).json({ success: false, error: 'Order not found in this agency workspace.' });
-    const details = await getOrderDetails(req.params.orderId);
+    const details = await getOrderDetails(req.params.orderId, job.paypalPayeeMerchantId);
     res.json({ success: true, order: details });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -837,7 +917,7 @@ app.post('/api/pay/approve-and-send', async (req, res) => {
 
     if (job.status === 'sent' && job.paypalPayoutBatchId) {
       retrySenderBatchId = job.paypalSenderBatchId;
-      const batch = await getPayoutStatus(job.paypalPayoutBatchId);
+      const batch = await getPayoutStatus(job.paypalPayoutBatchId, job.paypalPayeeMerchantId);
       res.json({
         success: true, alreadySent: true, jobId: job.id,
         batchId: job.paypalPayoutBatchId,
@@ -988,7 +1068,8 @@ app.post('/api/pay/approve-and-send', async (req, res) => {
       payoutItems: payoutRequest.payoutItems,
       emailSubject: payoutRequest.emailSubject,
       emailMessage: payoutRequest.emailMessage,
-      customBatchId: senderBatchId
+      customBatchId: senderBatchId,
+      sellerMerchantId: job.paypalPayeeMerchantId
     });
 
     await recordPayout({ jobId: job.id, batchId: paypalResult.batchId, allocations: payoutRequest.allocations, agencyId: res.locals.budpayUser.agencyId });
@@ -1027,10 +1108,11 @@ app.get('/api/paypal/test-auth', async (req, res) => {
 
 app.get('/api/paypal/payout/:batchId', async (req, res) => {
   try {
-    if (!await hasAgencyPayoutBatch(req.params.batchId, res.locals.budpayUser.agencyId)) {
+    const job = await getAgencyJobByPayoutBatch(req.params.batchId, res.locals.budpayUser.agencyId);
+    if (!job) {
       return res.status(404).json({ success: false, error: 'Payout batch not found in this agency workspace.' });
     }
-    const status = await getPayoutStatus(req.params.batchId);
+    const status = await getPayoutStatus(req.params.batchId, job.paypalPayeeMerchantId);
     if (Array.isArray(status.items)) {
       try { await updatePayoutStatuses(req.params.batchId, status.items, res.locals.budpayUser.agencyId); }
       catch (dbError) { console.error('Could not save payout statuses:', dbError.message); }

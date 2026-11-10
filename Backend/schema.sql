@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     crew_pile_cents INTEGER NOT NULL DEFAULT 0 CHECK (crew_pile_cents >= 0),
     status VARCHAR(30) NOT NULL DEFAULT 'draft',
     paypal_order_id VARCHAR(100) UNIQUE,
+    paypal_payee_merchant_id VARCHAR(32),
     paypal_capture_id VARCHAR(100),
     payment_captured BOOLEAN NOT NULL DEFAULT FALSE,
     paypal_sender_batch_id VARCHAR(100) UNIQUE,
@@ -47,8 +48,16 @@ CREATE TABLE IF NOT EXISTS public.agencies (
     slug VARCHAR(120) NOT NULL UNIQUE,
     owner_user_id UUID UNIQUE,
     owner_email VARCHAR(255) UNIQUE,
+    paypal_merchant_id VARCHAR(32) UNIQUE,
+    paypal_payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    paypal_connected_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS paypal_merchant_id VARCHAR(32);
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS paypal_payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS paypal_connected_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS agencies_paypal_merchant_id_unique ON public.agencies(paypal_merchant_id) WHERE paypal_merchant_id IS NOT NULL;
 
 INSERT INTO public.agencies (id, name, slug)
 VALUES ('tundestudio', 'Tunde''s Tailoring Studio', 'tunde-studio')
@@ -142,6 +151,7 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE
 ALTER TABLE people ADD COLUMN IF NOT EXISTS auth_email VARCHAR(255);
 UPDATE people SET auth_email = email WHERE auth_email IS NULL;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paypal_capture_id VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paypal_payee_merchant_id VARCHAR(32);
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payment_captured BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paypal_sender_batch_id VARCHAR(100);
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paypal_claimed_at TIMESTAMPTZ;
