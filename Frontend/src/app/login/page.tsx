@@ -113,11 +113,11 @@ function LoginForm() {
     }
     setBusy(true);
     try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
         redirectTo: getPasswordResetUrl(),
       });
       if (resetError) throw resetError;
-    setMessage('If an account exists for that address, Supabase has sent a password reset email. Check your inbox and spam folder.');
+      setMessage('If an account exists for that address, Supabase has sent a password reset email. Check your inbox and spam folder.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not request a password reset. Please try again.');
     } finally {
@@ -132,9 +132,11 @@ function LoginForm() {
         <h1 className="mt-2 text-3xl font-black text-slate-900">{mode === 'signin' ? 'Sign in to BudPay' : 'Create a BudPay account'}</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">This sign-in is for company owners and crew.</p>
         {denied && <p role="alert" className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">This account could not be connected to a BudPay workspace. Ask your agency owner to check your crew sign-in email.</p>}
-        {authError === 'backend_unavailable' && <p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">Google sign-in worked, but BudPay could not verify workspace access. Check the backend URL and try again.</p>}
+        {authError === 'backend_unavailable' && <p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">Your account was verified, but BudPay could not check workspace access. Check the backend URL and try again.</p>}
         {authError === 'session_expired' && <p role="alert" className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Your BudPay session expired. Sign in again to continue.</p>}
-        {authError && authError !== 'backend_unavailable' && <p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">Google sign-in could not be completed. Start again here, using the same browser and app address.</p>}
+        {authError === 'link_expired' && <p role="alert" className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">That email link has expired or was already used. Request a fresh confirmation or password reset link.</p>}
+        {authError === 'exchange_failed' && <p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">BudPay could not complete the email sign-in link. Request a fresh link and open it in the same browser where you started.</p>}
+        {authError && !['backend_unavailable', 'session_expired', 'link_expired', 'exchange_failed'].includes(authError) && <p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">Sign-in could not be completed. Start again here, using the same browser and app address.</p>}
         {!configured && <p role="alert" className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Supabase auth needs NEXT_PUBLIC_SUPABASE_URL and a public anon or publishable key in the frontend environment.</p>}
         {error && <p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         {message && <p role="status" className="mt-5 rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{message}</p>}

@@ -49,14 +49,16 @@ Run the complete latest `Backend/schema.sql` in Supabase to add agency-scoped re
 
 ### Supabase and Google settings
 
-In Supabase Authentication settings, enable email signups and email confirmation. In the Google provider settings, enable Google and enter the OAuth client ID and secret from Google Cloud. Add each app callback URL to Supabase's allowed redirect URL list:
+In Supabase Authentication settings, enable email signups. In the Google provider settings, enable Google and enter the OAuth client ID and secret from Google Cloud. Add each app callback URL to Supabase's allowed redirect URL list:
 
 - `http://localhost:3000/auth/callback`
+- `http://localhost:3000/auth/recovery`
 - `https://YOUR-FRONTEND-DOMAIN/auth/callback`
-- `http://localhost:3000/reset-password`
-- `https://YOUR-FRONTEND-DOMAIN/reset-password`
+- `https://YOUR-FRONTEND-DOMAIN/auth/recovery`
 
-Set the Supabase **Site URL** to the deployed frontend origin. The app sends an exact callback URL based on the current browser origin, so keep the localhost and deployed callback URLs above in the allowlist. The reset page exchanges the recovery code and lets the owner or an active crew member set a new password.
+Set the Supabase **Site URL** to the deployed frontend origin. Signup confirmation and Google OAuth use `/auth/callback`. Password recovery uses `/auth/recovery`, which exchanges Supabase's PKCE code and then forwards the user to `/reset-password` to choose a new password. The reset page is available to bosses, crew, and new agency owners.
+
+If email confirmation is enabled, signup requires a working SMTP sender. For a demo that cannot deliver confirmation emails, you can turn off **Confirm email** under the Supabase Email provider settings; Supabase then returns a session and marks the email confirmed. This bypasses proof of email ownership, so use it only for the intended demo setup. Password recovery still sends an email and therefore still needs SMTP.
 
 ### Auth email delivery
 

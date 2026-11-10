@@ -284,36 +284,81 @@ function SplitWizardContent() {
     return () => { active = false; };
   }, [API_URL]);
 
-  // A confirmed marketplace booking reuses its captured payment; it must never
-  // create a second customer charge when the agency prepares the team split.
+  // Restore a marketplace booking or the pending internal PayPal order after
+  // PayPal returns. The owner explicitly confirms capture before continuing.
   useEffect(() => {
-    const requestedJobId = new URLSearchParams(window.location.search).get('jobId');
+    const params = new URLSearchParams(window.location.search);
+    const requestedJobId = params.get('jobId');
+    const paymentReturn = params.get('payment') === 'return';
+    const paymentCancelled = params.get('payment') === 'cancel';
+    const paypalToken = params.get('token') || '';
     if (!requestedJobId) return;
     let active = true;
+    setBookingLoadError(null);
+    setCheckoutError(null);
     apiFetch(`${API_URL}/api/jobs/${encodeURIComponent(requestedJobId)}`)
       .then(async response => {
         const result = await response.json();
         if (!response.ok || !result.success || !result.data) throw new Error(result.error || 'Could not load this agency job.');
         const job = result.data;
-        if (!job.serviceId || !job.paymentCaptured) throw new Error('This marketplace booking has not been paid yet.');
         if (!active) return;
         setJobId(job.id);
         setPaypalOrderId(job.paypalOrderId || null);
         setCustomerPayment(Number(job.totalCustomerPaymentCents) / 100);
         setMaterialCosts(Number(job.materialCostsCents || 0) / 100);
         setBossShare(Number(job.bossShareCents || 0) / 100);
-        setCustomerPaymentCaptured(true);
         setStoryText('');
         setCrewList([]);
-        setMarketplaceBooking({
-          title: job.title,
-          customerName: job.customerName || '',
-          customerEmail: job.customerEmail || '',
-          customerNotes: job.customerNotes || ''
-        });
-        setCurrentStep(2);
+        const checkoutStorageKey = `budpay-split-checkout:${job.id}`;
+        try {
+          const savedCheckout = JSON.parse(sessionStorage.getItem(checkoutStorageKey) || 'null');
+          if (savedCheckout?.orderId === job.paypalOrderId && typeof savedCheckout.approvalUrl === 'string') {
+            setApprovalUrl(savedCheckout.approvalUrl);
+          }
+        } catch {
+          // The order can still be confirmed from the saved job if browser storage is unavailable.
+        }
+        if (job.serviceId) {
+          if (!job.paymentCaptured) throw new Error('This marketplace booking has not been paid yet.');
+          setCustomerPaymentCaptured(true);
+          setMarketplaceBooking({
+            title: job.title,
+            customerName: job.customerName || '',
+            customerEmail: job.customerEmail || '',
+            customerNotes: job.customerNotes || ''
+          });
+          setCurrentStep(2);
+          window.history.replaceState({}, '', '/split');
+          return;
+        }
+
+        setMarketplaceBooking(null);
+        if (job.paymentCaptured) {
+          setCustomerPaymentCaptured(true);
+          try { sessionStorage.removeItem(checkoutStorageKey); } catch { /* Ignore unavailable browser storage. */ }
+          window.history.replaceState({}, '', '/split');
+          return;
+        }
+        if (paymentCancelled) {
+          setJobId(null);
+          setPaypalOrderId(null);
+          setCustomerPaymentCaptured(false);
+          setBookingLoadError(null);
+          setCheckoutError('PayPal checkout was cancelled. No payment was captured. Create a new Sandbox order to continue.');
+          try { sessionStorage.removeItem(checkoutStorageKey); } catch { /* Ignore unavailable browser storage. */ }
+          window.history.replaceState({}, '', '/split');
+          return;
+        }
+        if (paymentReturn) {
+          if (!paypalToken || paypalToken !== job.paypalOrderId) throw new Error('The PayPal return did not match this job order. Reopen the order and approve it to continue.');
+          setCheckoutError(null);
+        }
       })
-      .catch(error => { if (active) setBookingLoadError(error.message || 'Could not load this agency job.'); });
+      .catch(error => {
+        if (!active) return;
+        setBookingLoadError(error.message || 'Could not load this agency job.');
+        if (paymentCancelled) window.history.replaceState({}, '', '/split');
+      });
     return () => { active = false; };
   }, [API_URL]);
 
@@ -396,7 +441,6 @@ function SplitWizardContent() {
   // Step 1: Create a Sandbox order and open its customer approval page.
   const handleCreateCustomerOrder = async () => {
     void refreshLearnedHabits();
-    const approvalWindow = window.open('', '_blank');
     setCheckoutError(null);
     setIsCreatingOrder(true);
     try {
@@ -419,12 +463,13 @@ function SplitWizardContent() {
       setJobId(data.jobId);
       setApprovalUrl(data.approvalUrl);
       setCustomerPaymentCaptured(false);
-      if (approvalWindow) {
-        approvalWindow.opener = null;
-        approvalWindow.location.href = data.approvalUrl;
+      try {
+        sessionStorage.setItem(`budpay-split-checkout:${data.jobId}`, JSON.stringify({ orderId: data.orderId, approvalUrl: data.approvalUrl }));
+      } catch {
+        // Keep checkout working if browser storage is unavailable; payment can still be confirmed on return.
       }
+      window.location.assign(data.approvalUrl);
     } catch (e: any) {
-      approvalWindow?.close();
       setCheckoutError(e.message || 'Could not create the PayPal Sandbox order.');
     } finally {
       setIsCreatingOrder(false);
@@ -446,7 +491,10 @@ function SplitWizardContent() {
         throw new Error(data?.error || 'PayPal has not confirmed the customer payment yet.');
       }
       setCustomerPaymentCaptured(true);
-      setCurrentStep(2);
+      try { sessionStorage.removeItem(`budpay-split-checkout:${jobId}`); } catch { /* Ignore unavailable browser storage. */ }
+      if (new URLSearchParams(window.location.search).get('payment') === 'return') {
+        window.history.replaceState({}, '', '/split');
+      }
     } catch (e: any) {
       setCheckoutError(e.message || 'Could not confirm customer payment.');
     } finally {
@@ -744,10 +792,10 @@ function SplitWizardContent() {
                   <span className="text-[10px] font-mono text-emerald-700 font-bold">ID: {paypalOrderId.slice(0, 8)}...</span>
                 )}
               </div>
-              {approvalUrl && !customerPaymentCaptured && (
+              {paypalOrderId && !customerPaymentCaptured && (
                 <div className="space-y-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
-                  <p className="text-xs text-blue-900">Approve the order with a PayPal Sandbox buyer, then confirm it here.</p>
-                  <a href={approvalUrl} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-700 underline">Open PayPal approval page</a>
+                  <p className="text-xs text-blue-900">After checkout returns here, reopen the approval page if needed or confirm the payment below. Confirmation unlocks Continue to Step 2.</p>
+                  {approvalUrl && <a href={approvalUrl} className="text-xs font-bold text-blue-700 underline">Open PayPal approval page</a>}
                   <button type="button" onClick={handleConfirmCustomerPayment} disabled={isConfirmingPayment} className="block rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
                     {isConfirmingPayment ? 'Checking PayPal...' : 'I approved it - confirm customer payment'}
                   </button>

@@ -120,7 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (role === 'crew' && pathname === '/agency/setup') router.replace('/hours');
     if (role === 'boss' && pathname === '/agency/setup') router.replace('/marketplace');
-    if (role === 'onboarding' && pathname !== '/agency/setup') router.replace('/agency/setup');
+    if (role === 'onboarding' && pathname !== '/agency/setup' && pathname !== '/reset-password') router.replace('/agency/setup');
   }, [loading, pathname, role, router, session]);
 
   const refreshAccess = () => setAccessCheckAttempt(attempt => attempt + 1);

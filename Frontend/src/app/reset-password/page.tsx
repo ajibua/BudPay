@@ -6,7 +6,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 
 export default function ResetPasswordPage() {
-  const { session, loading, role, accessError, refreshAccess } = useAuth();
+  const { session, loading, role } = useAuth();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -37,13 +37,9 @@ export default function ResetPasswordPage() {
     }
   };
 
-  const destination = role === 'crew' ? '/hours' : role === 'onboarding' ? '/agency/setup' : '/split';
+  const destination = role === 'crew' ? '/hours' : role === 'onboarding' ? '/agency/setup' : role === 'boss' ? '/split' : '/login';
 
-  if (accessError) {
-    return <main className="mx-auto flex min-h-[70vh] max-w-lg flex-col items-center justify-center gap-3 px-4 text-center"><p role="alert" className="text-sm text-rose-700">{accessError}</p><button type="button" onClick={refreshAccess} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white">Retry workspace check</button></main>;
-  }
-
-  if (loading || (session && !role)) {
+  if (loading) {
     return <main className="mx-auto flex min-h-[70vh] max-w-lg items-center justify-center px-4 text-sm text-slate-500" role="status">Checking your reset link…</main>;
   }
 

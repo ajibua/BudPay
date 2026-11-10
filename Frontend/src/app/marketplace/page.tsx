@@ -105,7 +105,6 @@ export default function MarketplacePage() {
     bookingStartInFlight.current = true;
     setError('');
     setBusy(true);
-    const approvalWindow = window.open('', '_blank');
     try {
       const response = await fetch(`${API_URL}/api/marketplace/bookings`, {
         method: 'POST',
@@ -118,12 +117,8 @@ export default function MarketplacePage() {
       }
       const nextCheckout = { bookingId: result.bookingId, orderId: result.orderId, approvalUrl: result.approvalUrl, service: selected };
       setCheckout(nextCheckout);
-      if (approvalWindow) {
-        approvalWindow.opener = null;
-        approvalWindow.location.href = result.approvalUrl;
-      }
+      window.location.assign(result.approvalUrl);
     } catch (err) {
-      approvalWindow?.close();
       setError(err instanceof Error ? err.message : 'Could not start checkout.');
     } finally {
       bookingStartInFlight.current = false;
@@ -219,7 +214,7 @@ export default function MarketplacePage() {
             <p className="text-xs font-bold uppercase tracking-widest text-blue-700">Secure checkout</p>
             <h2 className="mt-2 text-2xl font-extrabold text-slate-900">Approve your payment with PayPal</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">Approve the payment in PayPal. BudPay will verify and capture it when PayPal returns you here. If you came back to this tab, use the button below to check again.</p>
-            <a href={checkout.approvalUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">Open PayPal approval <ArrowRight className="h-4 w-4" /></a>
+            <a href={checkout.approvalUrl} className="mt-5 inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">Open PayPal approval <ArrowRight className="h-4 w-4" /></a>
             <button type="button" onClick={confirmPayment} disabled={busy} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60">{busy && <LoaderCircle className="h-4 w-4 animate-spin" />}{busy ? 'Confirming payment…' : 'I approved it — confirm payment'}</button>
             {error && <p role="alert" className="mt-4 text-sm font-medium text-rose-700">{error}</p>}
           </section>

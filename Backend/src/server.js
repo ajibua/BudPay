@@ -832,8 +832,17 @@ app.post('/api/paypal/create-order', async (req, res) => {
       return res.status(409).json({ success: false, error: 'This agency must grant PayPal payout permission before taking a payment that will be split with the team.' });
     }
     const sellerMerchantId = isPayPalMarketplaceConfigured() ? agency.paypalMerchantId : null;
-    const order = await createOrder({ amount: totalCents / 100, currency, description, sellerMerchantId });
+    const jobId = crypto.randomUUID();
+    const frontendOrigin = process.env.PAYPAL_RETURN_URL || 'http://localhost:3000';
+    const returnUrl = new URL('/split', frontendOrigin);
+    returnUrl.searchParams.set('payment', 'return');
+    returnUrl.searchParams.set('jobId', jobId);
+    const cancelUrl = new URL('/split', frontendOrigin);
+    cancelUrl.searchParams.set('payment', 'cancel');
+    cancelUrl.searchParams.set('jobId', jobId);
+    const order = await createOrder({ amount: totalCents / 100, currency, description, returnUrl: returnUrl.toString(), cancelUrl: cancelUrl.toString(), sellerMerchantId });
     const job = await createJob({
+      id: jobId,
       title: String(title).slice(0, 255), totalCustomerPaymentCents: totalCents,
       materialCostsCents: costsCents, bossShareCents: bossCents,
       crewPileCents: totalCents - costsCents - bossCents, paypalOrderId: order.id,

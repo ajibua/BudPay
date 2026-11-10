@@ -17,7 +17,7 @@ export function getAuthCallbackUrl() {
 }
 
 export function getPasswordResetUrl() {
-  return new URL('/reset-password', window.location.origin).toString();
+  return new URL('/auth/recovery', window.location.origin).toString();
 }
 
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
