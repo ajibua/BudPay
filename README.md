@@ -1,229 +1,148 @@
 # BudPay: Services Marketplace & Fair Pay
 
-> Customers find and pay service teams. Agencies use BudPay to share earnings fairly.
+BudPay connects customers with service agencies and gives each agency a workspace to manage jobs, crew contributions, and fair payouts. Customers can book as guests. Agency owners and crew use Supabase Auth. PayPal is restricted to Sandbox.
 
-BudPay is growing from an agency fair-pay workspace into a services marketplace. Customers browse a service, book it, and pay through PayPal. The agency receives the paid booking in its workspace, coordinates the work, reviews crew contributions, and explicitly approves a fair payout. All PayPal calls are restricted to Sandbox.
+## The app from start to finish
 
-## Project handoff for the next agent
+### 1. Customers discover and book a service
 
-### What BudPay is
+The landing page explains BudPay. Customers can browse the public Agencies directory, read each agency story and see its agency-submitted portfolio, then browse services in the Marketplace. Customers do not need a BudPay account.
 
-BudPay is a two-sided services marketplace with a private workspace for each agency. Customers browse agencies and services, book as guests, and pay with PayPal Sandbox. An agency manages its own bookings, crew, work logs, and fair-pay decisions. Customers do not get access to agency operations or crew records.
+At checkout, a customer enters their name, email, and optional request. BudPay creates a PayPal Sandbox order for the selected service. The customer approves it in PayPal and returns to BudPay. BudPay verifies and captures the order, saves the paid booking under the selected agency, and shows a booking reference. Customers can use that reference and their checkout email to track the booking.
 
-### Current implementation
+Agencies can publish services and update their public profile and portfolio from their workspace. Portfolio photos and descriptions are supplied by the agency.
 
-| Area | Implemented | State / important context |
-| --- | --- | --- |
-| Marketplace | Public agencies directory, agency profiles and agency-submitted portfolio, service listing and creation, guest booking, booking lookup, FAQ accordions | Portfolio examples are not independently verified. |
-| Authentication | Supabase Auth with Google OAuth and email/password UI; callback and role-aware workspace routing. Password recovery now exchanges its PKCE code at `/auth/recovery` before showing the reset form. | Google sign-in has worked in the demo setup. Email confirmation and password reset depend on Supabase SMTP delivery and still need an end-to-end check. Add local and deployed `/auth/recovery` URLs to Supabase Auth's redirect allowlist. |
-| Agency separation | Each company gets its own workspace, roster, jobs, work logs, and payout history | Backend scopes agency operations by `agency_id`. `BUDPAY_OWNER_EMAIL` only bootstraps the existing `tundestudio` workspace; it is not the way to authorize every future agency. |
-| RBAC | Agency boss can manage the agency workspace. Crew can submit and view their own hours only. Public customers can browse/book without signing in. | Crew hours are not automatically included in a payout; the boss reviews job details and approves the split. |
-| Fair sharing | Gemini parses the boss's work story; server-side rules calculate and validate cents, then the boss reviews the result | Gemini does not choose recipients or calculate money. Payout is an explicit boss action. |
-| PayPal Sandbox | Existing single-merchant order/capture and payout path; optional connected-agency seller onboarding, payee routing, and agency-context crew payouts | Connected-seller code is implemented but has not yet been confirmed end to end against an enabled PayPal partner Sandbox app. Partner credentials and PayPal-side enablement are required. No escrow or live PayPal support. |
-| Agency wallet view | Agency Jobs shows recorded captured-payment and submitted crew-payout totals for the connected seller | These are BudPay ledger totals, not a live PayPal balance or withdrawable wallet. |
-| Visual/product work | Navbar simplified, Google sign-in icon added, local Geist fonts self-hosted, landing/marketplace storytelling and FAQ section added | Recheck the deployed build during demo preparation. |
+### 2. Agencies manage their own work
 
-### Immediate next work
+An agency owner signs in and creates or opens the agency workspace. Each agency has its own services, profile, crew roster, work logs, bookings, and payout records.
 
-1. **Finish connected-seller Sandbox verification.** Confirm the PayPal app/platform is enabled for multiparty partner testing. Set backend `PAYPAL_PARTNER_MERCHANT_ID` and `PAYPAL_PARTNER_ATTRIBUTION_ID`, run the full latest [`Backend/schema.sql`](Backend/schema.sql), restart/redeploy, connect a distinct Sandbox business seller for an agency, then test guest booking, capture to that seller, and a boss-approved crew payout from that same seller context. Confirm PayPal status and agency ledger totals. If PayPal rejects onboarding, permissions, capture, or payouts, inspect its response/debug ID and resolve partner-app capability before changing the business flow. Never put credentials in chat or frontend variables.
-2. **Make auth email flows reliable.** Verify signup confirmation, resend confirmation, password reset, and callback behavior locally and on the deployed domain. Check Supabase Site URL / redirect allowlist and configured SMTP. Keep email confirmation behavior consistent with Supabase; do not make accounts trusted merely because signup returned successfully.
-3. **Add customer trust features.** Add feedback tied to a completed booking, then decide what agency identity verification means and how its evidence/status is shown. Portfolio images are currently self-submitted and must not be presented as verified reviews.
-4. **Add customer communication.** Implement email receipts/progress updates and agency-customer messaging after the payment/identity work is stable.
-5. **Prepare the demo.** Run customer-to-agency-to-crew scenarios with Sandbox accounts, check the deployed frontend/backend configuration, and complete the hackathon submission/demo requirements.
+The boss sees the agency's bookings in Agency Jobs & Payouts and can move a paid booking through in progress and completed. For a marketplace booking, the split workflow reuses the existing customer payment; it does not create a second customer charge.
 
-### Payment model and guardrails
+Crew members sign in and submit their own work-hour claims. They can view their own claims, but cannot open the boss workspace or other crew records. The boss reviews claims and runs the fair-pay workflow.
 
-- With connected-agency routing configured, the marketplace order names the agency's PayPal seller as the payee and requests instant disbursement. BudPay records the seller ID on the job so capture and later payouts use the same agency context.
-- The agency remains responsible for its job and crew decisions. The boss reviews and approves the split; BudPay then submits a PayPal Payouts batch. A customer capture is not automatically divided among crew.
-- Connected seller booking is blocked until PayPal seller eligibility and required crew payout permission are confirmed.
-- If partner settings are absent, the legacy single configured Sandbox merchant path remains available for existing demo behavior. Do not interpret that fallback as multi-agency funds separation.
-- All PayPal API calls are guarded to `https://api-m.sandbox.paypal.com`. Do not add live PayPal credentials or describe this prototype as supporting live payments, escrow, or a live wallet.
-- Payout requests are durably claimed with a stable sender batch ID and exact request before contacting PayPal, so retries can recover the original batch. Keep this idempotency behavior intact when editing payout code.
+### 3. AI turns the work story into a reviewable crew list
 
-### Useful code map
+The boss types or dictates a plain-language account of who did what and for how long. Google Gemini returns structured crew names, tasks, hours, suggested skill weights, summaries, and thank-you note drafts. If Gemini is unavailable, BudPay uses its deterministic parser and labels the result so the boss knows to review it.
 
-| Path | Responsibility |
-| --- | --- |
-| `Frontend/src/app/marketplace/page.tsx` | Customer service discovery, booking, and marketplace FAQs |
-| `Frontend/src/app/agencies/` and `Frontend/src/app/agency/` | Agency directory, public profile/portfolio, workspace setup, and PayPal return page |
-| `Frontend/src/app/history/page.tsx` | Agency Jobs, payout history, connected seller status, and recorded payment totals |
-| `Frontend/src/app/login/page.tsx`, `Frontend/src/app/auth/`, `Frontend/src/app/reset-password/page.tsx`, `Frontend/src/components/AuthProvider.tsx` | Supabase sign-in/callback, PKCE password recovery, session state, and frontend route guards |
-| `Backend/src/server.js` | API routes, Supabase identity verification, role checks, agency scoping, booking/payment/payout orchestration |
-| `Backend/src/services/paypal.js` | Sandbox-only PayPal Orders, seller onboarding/verification, capture, and Payouts calls |
-| `Backend/src/services/db.js` | Supabase persistence and mapping for agencies, services, jobs, work logs, and payout history |
-| `Backend/src/services/mathEngine.js` | Deterministic fair-share calculation and payout guardrails |
-| `Backend/schema.sql` | Full database setup and additive columns for agency and seller routing |
+AI does not decide who gets paid or calculate money. The boss must match each person to the agency roster and review the extracted details. Missing hours or task information is flagged for clarification.
 
-When taking over, read this handoff and the relevant route/service before editing. **This checkout currently has uncommitted connected-seller work** in the backend PayPal service/routes/database mapping/schema, the Agency Jobs screen, the PayPal return page, and this README. Check `git status` and preserve/review those changes before making edits or resetting anything. Do not treat connected-seller Sandbox routing as verified until its complete payment-and-payout path has been exercised with PayPal partner Sandbox access.
+### 4. BudPay calculates and validates the split
 
-## Product direction and current MVP
+The boss enters customer payment, material costs, and the boss's share. BudPay calculates the remaining crew pool and allocates it using each crew member's hours and skill weight. Money calculations use integer cents, reconcile to the exact total, and run server-side guardrails. The boss can adjust the proposed amounts before submitting anything.
 
-The customer side is for finding an agency and paying for its service. The agency side is for managing the paid job, crew work, and the final split. Customers do not see internal crew logs or payout decisions.
+For a direct agency job, Step 1 can create a PayPal Sandbox order. BudPay returns the boss to the same Split page after PayPal checkout. The boss can open the approval page again or confirm the payment. Confirming captures the approved order and unlocks Continue to Step 2. The boss then reviews the story, allocations, and final split.
 
-The public **Agencies** directory introduces the companies on BudPay; the **Marketplace** focuses on comparing and booking their services. A customer can view each agency profile and its agency-submitted portfolio, book a service, and pay through PayPal Sandbox. Agency owners sign in and create a workspace; each workspace has its own boss, crew roster, work logs, jobs, and payout history. Boss and crew APIs are scoped to that agency. The profile owner can edit its story and portfolio; portfolio uploads accept JPEG, PNG, or WebP images up to 2 MB in the public Supabase Storage bucket `agency-portfolio`. Customers enter contact details and an optional request, approve a Sandbox order, and return to BudPay for capture and a booking reference. The selected agency sees its paid booking in its workspace and can prepare the crew split from that existing capture.
+### 5. The boss approves PayPal payouts
 
-Marketplace seller routing is available as an optional PayPal Sandbox partner flow. When connected-seller settings are configured, each agency connects its own Sandbox PayPal seller account; BudPay routes booking payments to that seller and submits later crew payouts in the same seller context. Without those partner settings, the existing single configured Sandbox merchant flow remains active. BudPay does not hold funds in escrow. `BUDPAY_OWNER_EMAIL` remains only as a one-time bootstrap for claiming the existing `tundestudio` workspace; new agencies use their own confirmed Supabase account. Set optional `BUDPAY_AGENCY_NAME` to override the legacy demo agency's display name. Email receipts, customer feedback tied to completed bookings, and identity checks remain later milestones.
+The boss presses **Approve & Send** only after reviewing the split. The backend recalculates the allocations, validates the paid job and roster, stores an idempotent payout request, and submits a PayPal Sandbox Payouts batch to the crew recipients' Sandbox emails. BudPay checks PayPal's batch and item statuses and records them in the agency history. A crew member is shown as paid only when PayPal reports the item as successful.
 
-**Next build milestones:** add customer feedback tied to completed bookings, then consider stronger agency identity checks and customer account protections; add email receipts and customer-to-agency messaging. Portfolio entries are agency-submitted examples, not independently verified work or customer reviews.
+## How PayPal is used
 
-## How it works
+BudPay uses PayPal Orders to create and capture customer payments, and PayPal Payouts to send the boss-approved crew allocations. A PayPal order is not captured until the buyer approves it and BudPay confirms the payment. Payouts are a separate, explicit boss action.
 
-1. A customer selects a service and provides contact details and an optional request.
-2. BudPay creates a fixed-price PayPal Sandbox order. After customer approval, PayPal returns the customer to BudPay, which verifies and captures payment before showing the booking reference.
-3. A guest can later check the booking using its reference and the email entered at checkout. The agency moves the service progress through paid, in progress, and completed in **Agency Jobs & Payouts**.
-4. The agency opens a paid booking to prepare the team split. The existing payment capture is reused.
-5. The owner types or dictates the work story. Dictation appears as editable text; Gemini extracts crew names, tasks, hours, and thank-you notes.
-6. Each name must match a saved crew member. The owner reviews hours, skill weights, and the suggested split. After a work type appears in three fully successful payout jobs, its starting skill weight reflects the boss's historical choices.
-7. BudPay reconciles the split in whole cents and warns about unusually high hours or shares.
-8. The owner presses **Approve & Send**. The backend recalculates the split, checks the saved roster and paid job, and submits one idempotent PayPal payout batch.
-9. BudPay polls PayPal for each item and records each recipient's result in Supabase.
+There are two Sandbox payment modes:
 
-## Supabase setup for agency profile and portfolio
+- **Configured merchant mode:** payments use the PayPal Sandbox merchant associated with the backend app credentials.
+- **Connected-agency mode:** when the platform's PayPal partner settings are configured, each agency connects its own Sandbox seller account. Marketplace orders name that agency as the payee, and crew payouts use the same seller context.
 
-Run the complete `Backend/schema.sql` in the Supabase SQL Editor. It creates the agency registry and agency-scoped data fields, preserves existing BudPay records under `tundestudio`, seeds its profile and services, and creates the public `agency-portfolio` Storage bucket. The backend service role handles uploads and database changes; do not put the service role key in frontend environment variables. Public visitors can read portfolio images because the bucket is public. Portfolio photos are agency-provided examples and are not independently verified.
+BudPay does not hold customer funds in escrow. The Agency Jobs payment card shows BudPay-recorded payment and payout totals; it is not a live PayPal balance or a withdrawable wallet.
 
-The AI does not calculate money or choose recipients. A roster selection uses its server-side email; otherwise, the owner can enter a verified Sandbox email directly.
+The backend rejects PayPal API hosts outside **https://api-m.sandbox.paypal.com**. Use only Sandbox credentials and accounts.
 
-Voice typing uses the browser's speech recognition support and microphone permission. Browser support varies, and some browsers process speech through an online recognition service; typing remains available as a fallback.
+## Sign-in and access
 
-## Stack
+Supabase Auth supports Google OAuth and email/password accounts. Signup confirmation and password recovery use the Supabase email configuration. Authentication callbacks exchange Supabase PKCE codes using server-side cookies.
 
-- Frontend: Next.js App Router, React, TypeScript, Tailwind CSS
-- Backend: Express, Node.js ES modules
-- AI: Google Gemini structured story parsing
-- Payments: PayPal Sandbox Orders and Payouts APIs
-- Storage: Supabase REST API and PostgreSQL
+- **Agency boss:** manages only their agency's services, profile, crew, jobs, work logs, and payout history.
+- **Crew:** submits and views only their own work logs.
+- **Customer:** browses, books, pays, and checks a booking as a guest.
 
-## Setup
+The backend verifies the Supabase session and enforces roles and agency boundaries on protected API requests. **BUDPAY_OWNER_EMAIL** is a one-time bootstrap for claiming the existing Tunde Studio workspace; new agency owners create their own workspaces.
 
-### 1. Prepare Supabase
+## Main screens
 
-Open the Supabase SQL editor and run the **entire** [`Backend/schema.sql`](Backend/schema.sql) file from its first line. It creates `public.marketplace_services` before enabling its row-level security; executing only the final RLS/grant statements will produce a missing-relation error. Add each crew member with their actual PayPal Sandbox personal-account email, for example:
+- **/** — BudPay overview and customer/agency story
+- **/agencies** — public agency directory
+- **/marketplace** — service discovery, guest checkout, and FAQs
+- **/booking** — guest booking lookup
+- **/login** — Google and email/password sign-in or account creation
+- **/agency/setup** — create an agency workspace for a new owner
+- **/agency** — agency profile and portfolio management
+- **/split** — customer payment, story parsing, fair allocation, and payout workflow
+- **/history** — agency jobs, payment records, PayPal connection, and payout statuses
+- **/roster** — agency crew roster
+- **/hours** — crew work-hour submissions and claim history
+- **/how-it-works** — fair-pay workflow explanation
 
-```sql
-INSERT INTO people (agency_id, name, role, email, auth_email, default_job_weight)
-VALUES ('tundestudio', 'Tola', 'Apprentice / Sewing', 'the-real-sandbox-email@example.com', 'the-login-email@example.com', 1.5);
-```
+## Technology and data
 
-For a new agency, sign in with its confirmed Supabase account and follow the workspace setup prompt. Add its crew from the in-app roster so each member is assigned to the right agency. The first login with the legacy `BUDPAY_OWNER_EMAIL` claims the existing Tunde Studio workspace.
+- **Frontend:** Next.js App Router, React, TypeScript, Tailwind CSS
+- **Backend:** Express and Node.js ES modules
+- **Authentication and database:** Supabase Auth, PostgreSQL, and Supabase REST API
+- **AI:** Google Gemini structured story parsing with a deterministic fallback
+- **Payments:** PayPal Sandbox Orders and Payouts APIs
+- **Portfolio images:** public Supabase Storage bucket named **agency-portfolio**
 
-The roster is optional for payouts: saved entries can prefill a recipient, or you can enter a verified PayPal Sandbox email directly in the split screen. PayPal's item status confirms whether each address received its payout.
+The complete database setup is in [Backend/schema.sql](Backend/schema.sql). Run the entire file in the Supabase SQL Editor. It creates the agency-scoped tables and storage bucket, preserves the Tunde Studio workspace, and seeds its profile and example services. Running only the final grants or RLS statements will fail because the tables must exist first.
 
-### 2. Configure and start the backend
+## Run locally
 
-Copy `Backend/.env.example` to `Backend/.env` and fill in:
+### 1. Configure Supabase
 
-- PayPal **Sandbox** client ID and secret
-- Gemini API key
-- Supabase project URL and **service role** key
-- The frontend origin in `PAYPAL_RETURN_URL` (`http://localhost:3000` locally, and the deployed frontend origin in Vercel)
+Run the full **Backend/schema.sql** file in Supabase.
 
-To test connected agency seller accounts, the PayPal app must be enabled for the platform / multiparty Sandbox flow. Also set `PAYPAL_PARTNER_MERCHANT_ID` to the platform Sandbox business account's merchant ID and `PAYPAL_PARTNER_ATTRIBUTION_ID` to the PayPal-issued BN code. Then run the latest complete `Backend/schema.sql` so agencies can store connected seller IDs and payout permission. An agency boss can connect its Sandbox seller account from **Agency Jobs**. Marketplace bookings stay blocked for an agency until PayPal confirms the seller is eligible and has granted the requested crew payout permission. PayPal may return an authorization error until the platform integration is enabled for partner testing.
+In Supabase Auth URL Configuration, set the Site URL to the frontend's deployed origin and allow the local and deployed app callback URLs:
 
-Keep the Supabase service role key in the backend only. The backend refuses checkout and payouts when Supabase persistence is not configured. It also exits if the PayPal API URL is not a Sandbox host.
+- **http://localhost:3000/auth/callback**
+- **http://localhost:3000/auth/recovery**
+- **https://YOUR-FRONTEND-DOMAIN/auth/callback**
+- **https://YOUR-FRONTEND-DOMAIN/auth/recovery**
 
-Then run:
+Enable Google in Supabase Auth and use the Supabase provider callback URL shown in its Google setup instructions as the authorized redirect URI in Google Cloud. Configure the email provider and SMTP in Supabase if using email confirmation or password recovery.
 
-```bash
-cd Backend
-npm install
-npm run dev
-```
+### 2. Configure the backend
 
-### 3. Start the frontend
+Copy **Backend/.env.example** to **Backend/.env** and set the values for the Sandbox and Supabase projects:
 
-Copy `Frontend/.env.local.example` to `Frontend/.env.local`, set `NEXT_PUBLIC_API_URL` to the backend URL, and run:
+    PAYPAL_API_BASE=https://api-m.sandbox.paypal.com
+    PAYPAL_CLIENT_ID=
+    PAYPAL_CLIENT_SECRET=
+    PAYPAL_RETURN_URL=http://localhost:3000
+    GEMINI_API_KEY=
+    SUPABASE_URL=
+    SUPABASE_ANON_KEY=
+    SUPABASE_SERVICE_ROLE_KEY=
+    BUDPAY_OWNER_EMAIL=
 
-```bash
-cd Frontend
-npm install
-npm run dev
-```
+The two **PAYPAL_PARTNER_...** values enable connected-agency routing when available. Keep the PayPal secret and Supabase service-role key on the backend only. **BUDPAY_OWNER_EMAIL** is only for claiming the existing Tunde Studio workspace. **BUDPAY_AGENCY_NAME** can optionally change its display name.
 
-Open [http://localhost:3000](http://localhost:3000). Browse the marketplace, book a service, and approve its PayPal order with a Sandbox buyer. PayPal returns to BudPay, which confirms payment and displays a booking reference. Use **Track a booking** with that reference and the checkout email to view progress. Each agency owner signs in to update progress and prepare team splits for their own bookings; crew members sign in to log their own hours. The existing internal fair-share wizard remains available for direct agency jobs too.
+Start the backend:
 
-## Deploy the frontend and backend separately on Vercel
+    cd Backend
+    npm install
+    npm run dev
 
-This repository contains two independent Vercel projects. Import the same Git repository twice and set each project's **Root Directory** as shown below. Each app's `vercel.json` declares its framework (`nextjs` or `express`); Vercel deploys the Express app as a Vercel Function.
+### 3. Configure and start the frontend
 
-Before deploying, run the latest [`Backend/schema.sql`](Backend/schema.sql) in the Supabase SQL editor. It includes the grants required by the backend and allows payout rows for recipients entered directly without selecting a saved roster person.
+Copy **Frontend/.env.local.example** to **Frontend/.env.local** and set:
 
-### 1. Deploy the backend
+    NEXT_PUBLIC_API_URL=http://localhost:5000
+    NEXT_PUBLIC_SUPABASE_URL=
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=
 
-Create a Vercel project from this Git repository with:
+The frontend can use **NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY** instead of the anon key. Start the frontend in a second terminal:
 
-- **Project name:** `budpay-backend` (or your preferred name)
-- **Root Directory:** `Backend`
-- **Framework preset:** Express (or leave automatic detection enabled)
-- **Build command:** leave the default
-- **Output directory:** leave the default
-- **Install command:** leave the default (`npm install`)
+    cd Frontend
+    npm install
+    npm run dev
 
-Add these in **Settings → Environment Variables** for Production and Preview as appropriate. Keep the PayPal and Supabase credentials server-side; do not add them to the frontend project or any `NEXT_PUBLIC_` variable.
+Open **http://localhost:3000**. Use a PayPal Sandbox Personal account as the customer and Sandbox Business account(s) as the seller. Use Sandbox recipient emails for crew payouts.
 
-| Variable | Value |
-| --- | --- |
-| `PAYPAL_API_BASE` | `https://api-m.sandbox.paypal.com` |
-| `PAYPAL_CLIENT_ID` | PayPal Sandbox app client ID |
-| `PAYPAL_CLIENT_SECRET` | PayPal Sandbox app secret |
-| `PAYPAL_PARTNER_MERCHANT_ID` | Platform PayPal Sandbox business merchant ID (connected sellers) |
-| `PAYPAL_PARTNER_ATTRIBUTION_ID` | PayPal-issued partner / BN attribution code |
-| `PAYPAL_RETURN_URL` | Frontend's Vercel URL, added after the frontend is deployed |
-| `GEMINI_API_KEY` | Google AI API key |
-| `BUDPAY_AGENCY_NAME` | Optional display-name override for the legacy Tunde Studio workspace |
-| `SUPABASE_URL` | Supabase project URL, such as `https://<project-ref>.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
 
-Do not set `PORT`; Vercel provides the function runtime. Deploy the backend and copy its production URL, such as `https://budpay-backend.vercel.app`. Check `https://<backend-domain>/api/health`; it should report `persistentStorage: true` and `storageMode: "supabase"`.
+## Important behavior
 
-### 2. Deploy the frontend
-
-Create a second Vercel project from the same Git repository with:
-
-- **Project name:** `budpay-frontend` (or your preferred name)
-- **Root Directory:** `Frontend`
-- **Framework preset:** Next.js (automatic detection)
-- **Build command:** leave the default (`next build`)
-- **Output directory:** leave the default
-- **Install command:** leave the default (`npm install`)
-
-Set this environment variable for Production and Preview:
-
-| Variable | Value |
-| --- | --- |
-| `NEXT_PUBLIC_API_URL` | Backend's production URL, e.g. `https://budpay-backend.vercel.app` |
-
-Redeploy the frontend after changing this value; Next.js embeds `NEXT_PUBLIC_` values during the build. Copy the frontend's production URL when it deploys.
-
-### 3. Finish the PayPal return URL and verify
-
-In the backend project's environment variables, set `PAYPAL_RETURN_URL` to the frontend's production origin (for example, `https://budpay-frontend.vercel.app`, with no trailing slash), then redeploy the backend. For Preview deployments, use the frontend Preview URL if you want PayPal Sandbox approval to return to that preview.
-
-Then check:
-
-1. `https://<backend-domain>/api/health` reports Supabase persistence is enabled.
-2. `https://<backend-domain>/api/people` returns the saved roster.
-3. The frontend loads its presets and roster without a browser network/CORS error.
-4. Run an end-to-end customer checkout, guest booking lookup, agency progress update, and payout using Sandbox accounts only, and confirm each payout item status in the app.
-
-Vercel environment variable changes take effect after redeployment. Keep `SUPABASE_SERVICE_ROLE_KEY`, `PAYPAL_CLIENT_SECRET`, and `GEMINI_API_KEY` only in the backend project. Public marketplace browsing and booking do not require a customer account. Each agency owner and crew member signs in through Supabase Auth and is authorized only for the workspace they own or belong to; `BUDPAY_OWNER_EMAIL` is only for bootstrapping the existing demo workspace. Treat this as a Sandbox demo and do not use live PayPal credentials.
-
-## Safety and payout behavior
-
-- Customer payment, costs, boss share, and crew allocations use integer cents.
-- The backend recalculates each crew member's cents from the saved job and submitted hours/weights before payout.
-- Roster selections use the active person's saved email. Directly entered Sandbox emails are validated by the backend and sent as entered.
-- Payout requires a captured customer order and a human press of **Approve & Send**.
-- Jobs move through `draft -> reviewed -> approved -> sent` and are stored durably.
-- A job is atomically claimed with a stable sender batch ID and the exact payout request before contacting PayPal. Retries reuse that saved request and sender ID; PayPal processes a sender batch ID only once within 30 days. BudPay retrieves the original batch on a duplicate response. After the retry window, the job requires manual reconciliation.
-- The receipt marks a person **Paid** only when PayPal reports that item's status as `SUCCESS`.
-- Story, approval, payout, and status events are written to `job_events`; payout item statuses are saved in `payouts`.
-
-## Remaining before a public demo
-
-- Configure real Sandbox buyer and crew accounts and Supabase credentials.
-- Run complete Sandbox customer-to-crew payout scenarios and confirm each recipient's account and receipt status.
-- Deploy the backend and frontend with their secrets configured, record the demo, and complete hackathon submission requirements.
-
-The app is a Sandbox hackathon prototype. Supabase Auth identifies each agency owner and active crew member. A boss has full access to their agency workspace; crew accounts can submit and view only their own work-hour claims. Agency data is scoped by `agency_id` in the backend. The boss reviews claims. This RBAC setup does not automatically include approved crew hours in payout calculations.
-
+- Customer payments and crew payouts are separate PayPal transactions.
+- Marketplace bookings are public; customer sign-in is not required.
+- Marketplace service, profile, job, crew, and payout records are associated with an agency.
+- Payouts require an explicit boss approval; crew hours alone do not trigger payment.
+- Portfolio examples are supplied by the agency.
