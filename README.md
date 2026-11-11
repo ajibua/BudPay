@@ -67,6 +67,8 @@ Supabase Auth supports Google OAuth and email/password accounts. Signup confirma
 
 The backend verifies the Supabase session and enforces roles and agency boundaries on protected API requests. **BUDPAY_OWNER_EMAIL** is a one-time bootstrap for claiming the existing Tunde Studio workspace; new agency owners create their own workspaces.
 
+Demo url: https://bud-pay-6i61.vercel.app
+License: MIT License.
 ## Main screens
 
 - **/** — BudPay overview and customer/agency story
