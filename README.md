@@ -67,8 +67,29 @@ Supabase Auth supports Google OAuth and email/password accounts. Signup confirma
 
 The backend verifies the Supabase session and enforces roles and agency boundaries on protected API requests. **BUDPAY_OWNER_EMAIL** is a one-time bootstrap for claiming the existing Tunde Studio workspace; new agency owners create their own workspaces.
 
-Demo url: https://bud-pay-6i61.vercel.app
-License: MIT License.
+## Architecture and how the app is connected
+
+The frontend and backend are deployed as separate Vercel projects. The browser talks to Supabase Auth for sign-in and to the BudPay Express API for app data and actions. The backend is the trusted connection point for agency-scoped database work, Gemini story parsing, and PayPal Sandbox requests.
+
+```mermaid
+flowchart LR
+  U[Customers, agency bosses, and crew] --> FE[Next.js frontend<br/>Vercel]
+  FE <-->|OAuth, email/password, PKCE cookies| AUTH[Supabase Auth]
+  FE -->|REST requests<br/>session token when signed in| API[Express API<br/>Vercel]
+  API -->|Validate session and resolve role| AUTH
+  API -->|Agency-scoped data via REST<br/>backend service key| DB[(Supabase Postgres)]
+  API -->|Portfolio image upload/read| STORAGE[Supabase Storage]
+  API -->|Parse crew work story| AI[Google Gemini]
+  API -->|Create/capture orders<br/>send and check payouts| PP[PayPal Sandbox]
+  PP -->|Buyer approval return| FE
+```
+
+Supabase Auth issues the user session. For protected API requests, the frontend sends its access token as a bearer token; the backend checks it with Supabase, resolves the user's agency role, and applies the agency boundary before handling the request. Public marketplace browsing and customer booking do not require a BudPay account. Database and storage operations use backend credentials, which stay out of the browser.
+
+Gemini and PayPal are called from backend services, so their API credentials remain server-side. The browser handles the PayPal checkout redirect and return; the backend creates and captures the order, stores the payment/job record, and later sends a separately approved crew payout. Both Vercel projects must point to each other's deployed URLs through their environment settings.
+
+**Live demo:** [bud-pay-6i61.vercel.app](https://bud-pay-6i61.vercel.app) · **License:** MIT
+
 ## Main screens
 
 - **/** — BudPay overview and customer/agency story
