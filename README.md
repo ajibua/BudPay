@@ -20,7 +20,7 @@ The boss sees the agency's bookings in Agency Jobs & Payouts and can move a paid
 
 Crew members sign in and submit their own work-hour claims. They can view their own claims, but cannot open the boss workspace or other crew records. The boss reviews claims and runs the fair-pay workflow.
 
-### 3. AI turns the work story into a reviewable crew list
+### 3. AI helps turn the work story into a reviewable crew list
 
 The boss types or dictates a plain-language account of who did what and for how long. Google Gemini returns structured crew names, tasks, hours, suggested skill weights, summaries, and thank-you note drafts. If Gemini is unavailable, BudPay uses its deterministic parser and labels the result so the boss knows to review it.
 
@@ -48,6 +48,14 @@ There are two Sandbox payment modes:
 BudPay does not hold customer funds in escrow. The Agency Jobs payment card shows BudPay-recorded payment and payout totals; it is not a live PayPal balance or a withdrawable wallet.
 
 The backend rejects PayPal API hosts outside **https://api-m.sandbox.paypal.com**. Use only Sandbox credentials and accounts.
+
+## How AI is used
+
+BudPay uses Google Gemini to help an agency boss turn a written or dictated description of completed work into structured information for the fair-pay workflow. The AI can identify crew names, tasks, hours, and suggested skill weights, and draft a job summary and thank-you notes. Voice input is converted to text by the browser before the description is sent for parsing.
+
+The backend asks Gemini for structured output. If Gemini is unavailable, BudPay falls back to a deterministic parser. In either case, the result is a draft: the boss reviews it, resolves missing details, and matches each person to the agency's crew roster before continuing.
+
+Gemini does not select payout recipients, set final payout amounts, approve a job, or send money. BudPay's backend validates the roster and job, calculates the split in whole cents, and checks that the amounts reconcile. The boss reviews and explicitly approves the PayPal payout.
 
 ## Sign-in and access
 
@@ -84,6 +92,59 @@ The backend verifies the Supabase session and enforces roles and agency boundari
 - **Portfolio images:** public Supabase Storage bucket named **agency-portfolio**
 
 The complete database setup is in [Backend/schema.sql](Backend/schema.sql). Run the entire file in the Supabase SQL Editor. It creates the agency-scoped tables and storage bucket, preserves the Tunde Studio workspace, and seeds its profile and example services. Running only the final grants or RLS statements will fail because the tables must exist first.
+
+## Run locally
+
+### 1. Configure Supabase
+
+Run the full **Backend/schema.sql** file in Supabase.
+
+In Supabase Auth URL Configuration, set the Site URL to the frontend's deployed origin and allow the local and deployed app callback URLs:
+
+- **http://localhost:3000/auth/callback**
+- **http://localhost:3000/auth/recovery**
+- **https://YOUR-FRONTEND-DOMAIN/auth/callback**
+- **https://YOUR-FRONTEND-DOMAIN/auth/recovery**
+
+Enable Google in Supabase Auth and use the Supabase provider callback URL shown in its Google setup instructions as the authorized redirect URI in Google Cloud. Configure the email provider and SMTP in Supabase if using email confirmation or password recovery.
+
+### 2. Configure the backend
+
+Copy **Backend/.env.example** to **Backend/.env** and set the values for the Sandbox and Supabase projects:
+
+    PAYPAL_API_BASE=https://api-m.sandbox.paypal.com
+    PAYPAL_CLIENT_ID=
+    PAYPAL_CLIENT_SECRET=
+    PAYPAL_RETURN_URL=http://localhost:3000
+    GEMINI_API_KEY=
+    SUPABASE_URL=
+    SUPABASE_ANON_KEY=
+    SUPABASE_SERVICE_ROLE_KEY=
+    BUDPAY_OWNER_EMAIL=
+
+The two **PAYPAL_PARTNER_...** values enable connected-agency routing when available. Keep the PayPal secret and Supabase service-role key on the backend only. **BUDPAY_OWNER_EMAIL** is only for claiming the existing Tunde Studio workspace. **BUDPAY_AGENCY_NAME** can optionally change its display name.
+
+Start the backend:
+
+    cd Backend
+    npm install
+    npm run dev
+
+### 3. Configure and start the frontend
+
+Copy **Frontend/.env.local.example** to **Frontend/.env.local** and set:
+
+    NEXT_PUBLIC_API_URL=http://localhost:5000
+    NEXT_PUBLIC_SUPABASE_URL=
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=
+
+The frontend can use **NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY** instead of the anon key. Start the frontend in a second terminal:
+
+    cd Frontend
+    npm install
+    npm run dev
+
+Open **http://localhost:3000**. Use a PayPal Sandbox Personal account as the customer and Sandbox Business account(s) as the seller. Use Sandbox recipient emails for crew payouts.
 
 ## Important behavior
 
